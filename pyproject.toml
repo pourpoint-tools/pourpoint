@@ -1,6 +1,6 @@
 [project]
 name = "pourpoint"
-version = "0.0.0.dev0"
+version = "0.5.0rc1"
 description = "A Python watershed delineation engine consuming HFX datasets"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -16,6 +16,12 @@ dependencies = [
     "rasterio>=1.5.2",
     "shapely>=2.1",
 ]
+
+[project.urls]
+Homepage = "https://pourpoint-tools.github.io/"
+Documentation = "https://pourpoint-tools.github.io/"
+Repository = "https://github.com/pourpoint-tools/pourpoint"
+Issues = "https://github.com/pourpoint-tools/pourpoint/issues"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13"]

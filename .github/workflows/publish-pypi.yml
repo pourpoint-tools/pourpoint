@@ -1,0 +1,80 @@
+name: Release
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build distribution packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pourpoint
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - uses: astral-sh/setup-uv@v6
+      - run: uv publish --trusted-publishing always
+  deploy-docs:
+    name: Deploy release documentation
+    needs: [publish-pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Read exact HFX revision
+        id: hfx
+        run: echo "revision=$(cat docs/hfx-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: pourpoint-tools/hfx
+          ref: ${{ steps.hfx.outputs.revision }}
+          path: .worktrees/hfx-docs
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Build pinned documentation
+        run: uv run --frozen --group docs python scripts/build_docs.py --hfx-source .worktrees/hfx-docs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documentation-${{ github.sha }}
+          path: .docs-build/site
+          include-hidden-files: true
+          if-no-files-found: error
+      - uses: actions/checkout@v4
+        with:
+          repository: pourpoint-tools/pourpoint-tools.github.io
+          ref: main
+          path: .worktrees/generated-site
+          ssh-key: ${{ secrets.DOCS_SITE_WRITE_KEY }}
+      - name: Retain release output and publish when enabled
+        env:
+          DOCS_PUBLICATION_ENABLED: ${{ vars.DOCS_PUBLICATION_ENABLED }}
+        run: uv run --frozen python scripts/publish_docs.py --repository .worktrees/generated-site

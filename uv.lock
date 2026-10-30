@@ -710,7 +710,7 @@ wheels = [
 
 [[package]]
 name = "pourpoint"
-version = "0.0.0.dev0"
+version = "0.5.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "affine" },
