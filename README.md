@@ -202,24 +202,3 @@ See the [GRIT paper](https://doi.org/10.1029/2024WR038308) and
 Pourpoint's code is licensed under [MIT](LICENSE). GRIT data and derived outputs
 carry **CC BY-NC 4.0** terms. Follow the source dataset's attribution and reuse
 conditions when sharing a watershed, map or QGIS bundle.
-
-## Development
-
-From a checkout, install the development dependencies and run the checks with uv.
-
-```bash
-uv sync --group dev
-uv run python -m pytest
-uv run ruff format --check src tests
-uv run ruff check src tests
-uv run ty check src
-uv build
-```
-
-See [AGENTS.md](AGENTS.md) for project conventions and
-[building the documentation](docs/building.md) for the local documentation workflow.
-
-The Rust comparison baseline is
-[CooperBigFoot/pourpoint at `60e3d6e383546ea6ed20e68fe4d77959c816a48c`](https://github.com/CooperBigFoot/pourpoint/tree/60e3d6e383546ea6ed20e68fe4d77959c816a48c).
-In a checkout of that repository, inspect it with
-`git show 60e3d6e383546ea6ed20e68fe4d77959c816a48c:crates/core/src/engine.rs`.
