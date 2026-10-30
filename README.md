@@ -36,7 +36,7 @@ This is a release candidate of the Python rewrite, available for testing before 
 Copy the prompt below into your coding agent after installing Pourpoint.
 
 <details id="agent-prompt">
-<summary>Get your coding agent on board</summary>
+<summary>Show agent prompt</summary>
 
 ```text
 Use Pourpoint to delineate watersheds from existing HFX hydrofabrics.

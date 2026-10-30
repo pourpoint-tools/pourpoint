@@ -7,7 +7,7 @@ function initCopyAgentPromptButton() {
   btn.type = "button";
   btn.id = "copy-agent-prompt-btn";
   btn.className = "md-button";
-  btn.textContent = "Get your agents on board";
+  btn.textContent = "Copy agent prompt";
   btn.setAttribute("aria-live", "polite");
   disclosure.before(btn);
   btn.addEventListener("click", async () => {
@@ -18,7 +18,7 @@ function initCopyAgentPromptButton() {
       btn.textContent = "Copy failed. Open the prompt to copy it manually.";
       console.error("Failed to copy agent prompt to clipboard:", err);
     }
-    setTimeout(() => { btn.textContent = "Get your agents on board"; }, 2000);
+    setTimeout(() => { btn.textContent = "Copy agent prompt"; }, 2000);
   });
 }
 
