@@ -1,6 +1,6 @@
 [project]
 name = "pourpoint"
-version = "0.5.0rc3"
+version = "0.5.0rc4"
 description = "A Python watershed delineation engine consuming HFX datasets"
 readme = "README.md"
 requires-python = ">=3.13"
