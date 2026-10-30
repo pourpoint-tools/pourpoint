@@ -31,6 +31,69 @@ uv add pourpoint
 
 You can also install it with `pip install pourpoint`.
 
+## Use with a coding agent
+
+Copy the prompt below into your coding agent after installing Pourpoint.
+
+<details id="agent-prompt">
+<summary>Get your coding agent on board</summary>
+
+```text
+Use Pourpoint to delineate watersheds from existing HFX hydrofabrics.
+
+Check that pourpoint imports in the project's own Python environment
+(Python 3.13 or newer) and note its installed version. Use the project's
+runner, such as uv run python, not a separate agent environment. If setup
+fails, report the error. Do not install or upgrade packages automatically.
+
+Pourpoint reads compiled HFX bundles, not arbitrary source hydrofabrics or
+DEMs. Use a local bundle directory or an accessible HTTP(S)/S3 bundle URL.
+Check supported HFX versions and representations in the getting-started
+guide. Remote reads need access to the host; cached data may be incomplete.
+Only access data needed for the user's task and respect source-data terms.
+
+Typical vector-only workflow, with the user's HFX bundle and outlet:
+import pourpoint as pp
+
+with pp.HydroFabric(dataset) as fabric:
+    result = pp.delineate(fabric=fabric, target=point)
+    watershed = result.geometry
+    subbasins = result.subbasins
+
+Here dataset is a bundle path or URL and point is a Shapely Point in
+EPSG:4326 (longitude, latitude). Vector targets and outputs use that CRS;
+native raster outputs retain their own CRS. Catchment level defaults to 1,
+not the finest level. This example selects whole upstream sub-basins.
+Snapping needs explicit snap_onto geometry; its radius is in metres.
+refine=True needs covering direction and accumulation rasters and never
+silently falls back to a coarse result. Consult the README's Rhine example
+for snapping, refinement and QGIS export; do not run it just for onboarding.
+
+Single-target OperationError exposes code and reason. For batches, inspect
+issues and None result slots; valid empty selections are not failures.
+Configuration and integrity errors raise. Do not treat partial batch success
+as complete coverage or source attributes as recomputed for clipped areas.
+
+Keep source-dependent work and exports inside the HydroFabric context.
+QGISBundle writes a new folder and refuses to overwrite an existing one;
+move the whole folder together. River selection is a separate operation.
+
+Consult documentation as needed, checking signatures against the installed
+version:
+- HFX datasets, coordinates and caching:
+  https://pourpoint-tools.github.io/getting-started/
+- Selection, refinement, batches, failures and portable output:
+  https://pourpoint-tools.github.io/operations/
+- Exact API signatures and returned types:
+  https://pourpoint-tools.github.io/reference/operations/
+  https://pourpoint-tools.github.io/reference/results/
+
+Continue the user's task without onboarding questions. If no task was
+given, briefly confirm readiness.
+```
+
+</details>
+
 ## Delineate the Rhine at Basel
 
 The point at 47.5596° N, 7.5890° E lies on the Rhine in Basel, Switzerland. We will
