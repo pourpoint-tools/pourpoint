@@ -4,9 +4,9 @@
 
 Redesign Pourpoint’s complete HFX reader and runtime representation for catchments/sub-basins, rivers, source nodes and rasters. Make the finalized HFX 0.4.0 publication useful for fast single-point and bulk watershed delineation, without consumer-side rebuilding of indexes that HFX already supplies.
 
-This is the implementation handoff for [#36](https://github.com/pourpoint-tools/pourpoint/issues/36), within [Program #2](https://github.com/pourpoint-tools/pourpoint/issues/2). Publishing this vision does not complete #36. Completion requires the reader/runtime implementation and verification described here. Treat existing code as a draft to redesign, not an architecture to preserve through river-only additions. Reuse suitable pieces where justified.
+This is the implementation handoff for [#187](https://github.com/pourpoint-tools/pourpoint/issues/187), within [Program #182](https://github.com/pourpoint-tools/pourpoint/issues/182). Publishing this vision does not complete #187. Completion requires the reader/runtime implementation and verification described here. Treat existing code as a draft to redesign, not an architecture to preserve through river-only additions. Reuse suitable pieces where justified.
 
-The [Python API and QGIS workflow vision](2026-10-20-python-api-and-qgis-workflows.md) anchors user-facing semantics. This vision settles lifecycle, attribute access, caching intent and fabric-backed raster inputs. It does not authorize implementing the complete delineation/refinement algorithms, convenience workflow or QGIS exporter merely because their future use informs the runtime. The optional user-selected vector/raster consistency utility is deferred to [#38](https://github.com/pourpoint-tools/pourpoint/issues/38), not a startup requirement or worldwide audit.
+The [Python API and QGIS workflow vision](2026-10-20-python-api-and-qgis-workflows.md) anchors user-facing semantics. This vision settles lifecycle, attribute access, caching intent and fabric-backed raster inputs. It does not authorize implementing the complete delineation/refinement algorithms, convenience workflow or QGIS exporter merely because their future use informs the runtime. The optional user-selected vector/raster consistency utility is deferred to [#180](https://github.com/pourpoint-tools/pourpoint/issues/180), not a startup requirement or worldwide audit.
 
 ## Authoritative input and existing evidence
 
@@ -76,7 +76,7 @@ Range/block representation, overlap deduplication, atomic persistence and connec
 
 ## Efficient access and evidence of success
 
-Speed and avoiding inefficient queries are primary requirements for both single-point and bulk workloads. Start from the [#36 comments](https://github.com/pourpoint-tools/pourpoint/issues/36) and linked HFX experiments, rather than repeating their format investigation:
+Speed and avoiding inefficient queries are primary requirements for both single-point and bulk workloads. Start from the [#187 comments](https://github.com/pourpoint-tools/pourpoint/issues/187) and linked HFX experiments, rather than repeating their format investigation:
 
 - Project columns before acquisition/decompression where the format permits; avoid WKB when it is not needed.
 - Prune spatial candidates through conservative Parquet statistics, then record bounds/tier; bbox overlap is not exact geometry intersection. Retain groups with missing statistics.

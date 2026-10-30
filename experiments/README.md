@@ -83,10 +83,10 @@ coordinated competing experiment runs. Reader RSS and process peaks are in
 
 ## Reproduce and inspect
 
-- [Arrow reader commands and records](arrow_read/README.md) — [PR #13](https://github.com/pourpoint-tools/pourpoint/pull/13).
-- [Topology commands and records](dense_topology/README.md) — [PR #11](https://github.com/pourpoint-tools/pourpoint/pull/11).
+- [Arrow reader commands and records](arrow_read/README.md) — [PR #13](https://github.com/pourpoint-tools/pourpoint-rewrite-backup/pull/13).
+- [Topology commands and records](dense_topology/README.md) — [PR #11](https://github.com/pourpoint-tools/pourpoint-rewrite-backup/pull/11).
 - [Selective access commands](selective_access/README.md) and
-  [full query table](selective_access/results/README.md) — [PR #12](https://github.com/pourpoint-tools/pourpoint/pull/12).
+  [full query table](selective_access/results/README.md) — [PR #12](https://github.com/pourpoint-tools/pourpoint-rewrite-backup/pull/12).
 
 Each experiment has an isolated `uv` project and lockfile. Correctness tests use
 small independent cases, including a reconvergent DAG, non-row IDs, missing IDs,

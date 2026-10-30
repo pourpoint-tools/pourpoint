@@ -220,7 +220,7 @@ part of the terminal unit, but excludes the right-hand branch through $u_2$.
     It has not yet been tested on the available datasets with rasters.
     Successful refinement does not verify it: a masked trace cannot discover
     contributing land outside the mask. How to check or declare consistency
-    remains open; [issue #38](https://github.com/pourpoint-tools/pourpoint/issues/38)
+    remains open; [issue #180](https://github.com/pourpoint-tools/pourpoint/issues/180)
     records the deferred checking utility.
 
 ## Generalizing from a point to a region

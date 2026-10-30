@@ -2,7 +2,7 @@
 
 ## Purpose and authority
 
-This is the agreed public API for Pourpoint's hydrological operations and portable QGIS delivery. It originated in [API design discussion #35](https://github.com/pourpoint-tools/pourpoint/issues/35), completed as documentation in #37, and was revised through the subsequent backend-design discussion on 2026-10-22. Updating this document does not reopen #35 or implement the engine.
+This is the agreed public API for Pourpoint's hydrological operations and portable QGIS delivery. It originated in [API design discussion #185](https://github.com/pourpoint-tools/pourpoint/issues/185), completed as documentation in #37, and was revised through the subsequent backend-design discussion on 2026-10-22. Updating this document does not reopen #185 or implement the engine.
 
 The [backend implementation vision](2026-10-22-delineation-river-networks-and-qgis-delivery.md) owns implementation constraints and evidence of completion. The [reader/runtime vision](2026-10-20-hfx-reader-and-runtime-redesign.md) and [runtime documentation](../../docs/runtime.md) govern the implemented HFX foundation and lifetime. This API document is the single public-surface authority; examples describe intended behavior, not existing engine functions or binding internal class layouts.
 

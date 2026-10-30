@@ -6,7 +6,7 @@ is an opportunity to review algorithms, array operations and use of native
 libraries, not a requirement to match Rust or achieve a fixed speedup.
 Small per-query costs matter when delineating thousands of basins.
 
-This vision completes [#51](https://github.com/pourpoint-tools/pourpoint/issues/51)
+This vision completes [#170](https://github.com/pourpoint-tools/pourpoint/issues/170)
 when the investigation, justified improvements and their evidence are delivered.
 Publishing this document does not complete the issue. The agreed scope extends
 its original investigation to adopting improvements supported by the experiments.

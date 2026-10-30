@@ -6,7 +6,7 @@ Return the numbers to the maintainer. There is no performance target, sufficienc
 judgment, optimization investigation, or design selection in this work. The
 maintainer will interpret the results in a separate session.
 
-This is standalone research associated with [issue #28](https://github.com/pourpoint-tools/pourpoint/issues/28).
+This is standalone research associated with [issue #175](https://github.com/pourpoint-tools/pourpoint/issues/175).
 The confirmed scope here supersedes that issue's earlier proposals to compare
 batching strategies or recommend improvements. It does not implement Effort #4
 or change its discovery status.

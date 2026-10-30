@@ -1,6 +1,6 @@
 # Catchment lookup and layout experiment
 
-Standalone research for [#19](https://github.com/pourpoint-tools/pourpoint/issues/19).
+Standalone research for [#183](https://github.com/pourpoint-tools/pourpoint/issues/183).
 No production reader or HFX release. #3 stays paused. The published
 [vision](../../planning/visions/2026-10-07-hfx-selective-access-reader-benchmarks.md)
 defines the comparison. [Results](results/README.md) compare both changes and

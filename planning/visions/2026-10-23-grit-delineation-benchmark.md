@@ -6,7 +6,7 @@ against the released Rust-backed implementation with HFX 0.3.0. This is a small
 regression screen, not strict equivalence certification or a language benchmark: it
 compares two complete engine/dataset stacks.
 
-This vision defines the work to complete [#47](https://github.com/pourpoint-tools/pourpoint/issues/47).
+This vision defines the work to complete [#188](https://github.com/pourpoint-tools/pourpoint/issues/188).
 Publishing the vision does not complete the issue. Return the benchmark findings
 there; this work authorizes measurement, not production optimization.
 

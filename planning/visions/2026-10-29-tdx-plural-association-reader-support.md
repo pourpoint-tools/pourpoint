@@ -2,7 +2,7 @@
 
 Make the small Pourpoint reader update needed for HFX rivers with multiple local
 catchments, and verify it against the current full-coverage TDX bundle on Hetzner.
-Implementation of this vision completes [issue #44](https://github.com/pourpoint-tools/pourpoint/issues/44);
+Implementation of this vision completes [issue #177](https://github.com/pourpoint-tools/pourpoint/issues/177);
 publication of this document does not.
 
 ## Contract and scope

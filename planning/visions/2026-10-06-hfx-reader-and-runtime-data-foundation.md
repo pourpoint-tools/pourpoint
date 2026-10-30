@@ -1,7 +1,7 @@
 # HFX reader and runtime data foundation
 
-Program: https://github.com/pourpoint-tools/pourpoint/issues/2
-Effort: https://github.com/pourpoint-tools/pourpoint/issues/3
+Program: https://github.com/pourpoint-tools/pourpoint/issues/182
+Effort: https://github.com/pourpoint-tools/pourpoint/issues/184
 
 ## Outcome
 
@@ -159,8 +159,8 @@ startup, snapping or complete delineation performance. GRIT's partitioned DAG
 upstream-area semantics and null values remain source facts, not errors to repair.
 Preserve its attribution and CC BY-NC 4.0 terms; do not commit raw datasets.
 
-Build on [#9](https://github.com/pourpoint-tools/pourpoint/issues/9),
-[#19](https://github.com/pourpoint-tools/pourpoint/issues/19), the
+Build on [#173](https://github.com/pourpoint-tools/pourpoint/issues/173),
+[#183](https://github.com/pourpoint-tools/pourpoint/issues/183), the
 [compact topology experiments](../../experiments/dense_topology/README.md), and
 [local/HTTP/Hetzner catchment evidence](../../experiments/catchment_read/hetzner_results/README.md).
 Published lookup removes startup scanning; byte-budgeted IPC reduces expensive

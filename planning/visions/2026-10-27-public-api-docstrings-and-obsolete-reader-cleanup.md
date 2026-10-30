@@ -4,7 +4,7 @@
 
 Make Pourpoint's supported Python API understandable through concise, LLM-friendly source docstrings suitable for generating an API reference. Remove the obsolete draft HFX reader rather than documenting or maintaining a second unsupported interface.
 
-This is the implementation handoff for [discussion #54](https://github.com/pourpoint-tools/pourpoint/issues/54). Publishing this vision does not complete that issue. Completion requires the docstrings, repository guidance, cleanup and verification below. Resume [documentation discussion #46](https://github.com/pourpoint-tools/pourpoint/issues/46) afterward; documentation-site construction and deployment remain separate work.
+This is the implementation handoff for [discussion #186](https://github.com/pourpoint-tools/pourpoint/issues/186). Publishing this vision does not complete that issue. Completion requires the docstrings, repository guidance, cleanup and verification below. Resume [documentation discussion #178](https://github.com/pourpoint-tools/pourpoint/issues/178) afterward; documentation-site construction and deployment remain separate work.
 
 The [Python API and QGIS workflows vision](2026-10-20-python-api-and-qgis-workflows.md) is the existing public-surface authority. Use it to select the reference surface, then inspect current implementations to explain concrete types and behavior. Do not turn the current export list into a competing API contract. The [reader/runtime vision](2026-10-20-hfx-reader-and-runtime-redesign.md) supplies current data-access and lifecycle context. Report material discrepancies rather than silently redesigning the API or documenting unintended behavior as a requirement.
 

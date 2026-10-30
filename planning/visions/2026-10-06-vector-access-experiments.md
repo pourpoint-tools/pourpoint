@@ -4,7 +4,7 @@ Measure three ways to improve Python vector access on unchanged HFX 0.3.0.
 Deliver reproducible numbers, not a production engine or an architecture decision.
 The maintainer will bring the results back for discussion and choose what to do next.
 
-Research context: https://github.com/pourpoint-tools/pourpoint/issues/9
+Research context: https://github.com/pourpoint-tools/pourpoint/issues/173
 
 This is standalone research. It does not complete issue #3, become a Program
 member, or authorize changing either issue's scope or status.

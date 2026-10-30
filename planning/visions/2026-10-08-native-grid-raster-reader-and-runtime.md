@@ -1,7 +1,7 @@
 # Native-grid raster reader and runtime
 
-Program: https://github.com/pourpoint-tools/pourpoint/issues/2
-Effort: https://github.com/pourpoint-tools/pourpoint/issues/4
+Program: https://github.com/pourpoint-tools/pourpoint/issues/182
+Effort: https://github.com/pourpoint-tools/pourpoint/issues/174
 
 Supply the paired direction and accumulation windows needed to refine a terminal
 unit, with little overhead beyond selected reads. Build a reusable sequential

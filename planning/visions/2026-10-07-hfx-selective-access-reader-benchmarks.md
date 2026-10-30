@@ -5,9 +5,9 @@ and whether changing catchments from Parquet to Arrow IPC improves selected
 retrieval further. Return evidence for the maintainer to decide what to do next,
 not a predetermined format winner.
 
-This vision serves [Pourpoint #19](https://github.com/pourpoint-tools/pourpoint/issues/19).
+This vision serves [Pourpoint #183](https://github.com/pourpoint-tools/pourpoint/issues/183).
 It is standalone research, not a Program Effort or production implementation.
-[#3](https://github.com/pourpoint-tools/pourpoint/issues/3) remains paused: do not
+[#184](https://github.com/pourpoint-tools/pourpoint/issues/184) remains paused: do not
 revise its vision or resume its implementation as part of this work.
 
 ## The comparison

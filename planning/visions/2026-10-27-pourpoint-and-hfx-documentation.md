@@ -4,7 +4,7 @@
 
 Prepare clear documentation for humans and LLMs, with **https://pourpoint-tools.github.io/** as the eventual public address. Keep all repositories and documentation private during development; public publication requires a later explicit maintainer decision. Explain Pourpoint's use and hydrological concepts, generate its API reference from source docstrings, and explain the current HFX 0.4.0 specification in its own section of the same site. Readers must not need development history to understand current behavior.
 
-This is the implementation handoff for [Pourpoint #46](https://github.com/pourpoint-tools/pourpoint/issues/46), coordinated with [HFX #34](https://github.com/pourpoint-tools/hfx/issues/34). Delivering the outcome completes #46; publishing this vision does not. HFX #34 supplies related cleanup context, not a second specification or an automatic issue-closing instruction.
+This is the implementation handoff for [Pourpoint #178](https://github.com/pourpoint-tools/pourpoint/issues/178), coordinated with [HFX #259](https://github.com/pourpoint-tools/hfx/issues/259). Delivering the outcome completes #178; publishing this vision does not. HFX #259 supplies related cleanup context, not a second specification or an automatic issue-closing instruction.
 
 Use MkDocs Material and mkdocstrings, following RivRetrieve's source/site separation and release-only publication model. Do not copy unrelated application features or require PyPI publication as a dependency. Create `pourpoint-tools/pourpoint-tools.github.io` as a private generated-site repository. Keep public GitHub Pages deployment disabled during development. Private source repositories do not make a Pages site private. No custom domain or DNS setup.
 
@@ -14,7 +14,7 @@ Rewrite Pourpoint's root README as a concise entry point: current purpose, basic
 
 Pourpoint documentation covers getting started (installation and basic setup), concepts (including upstream contributing area, whole-subbasin selection versus raster refinement, assumptions and limitations), and API reference. Curate the reference into core operations and returned objects versus advanced source access. The [Python API vision](2026-10-20-python-api-and-qgis-workflows.md) selects the supported surface; source docstrings explain implemented behavior. Do not automatically expose all internal symbols or maintain parallel descriptions of each API.
 
-[PR #56](https://github.com/pourpoint-tools/pourpoint/pull/56) delivered the user-facing NumPy-style docstrings and removed the obsolete reader. Reuse those docstrings and repository guidance. Signature repetition, filler sections and blanket internal documentation are not goals. Explain necessary units, CRS, result meanings, lifecycle and failure behavior without diluting qualifications.
+[PR #56](https://github.com/pourpoint-tools/pourpoint-rewrite-backup/pull/56) delivered the user-facing NumPy-style docstrings and removed the obsolete reader. Reuse those docstrings and repository guidance. Signature repetition, filler sections and blanket internal documentation are not goals. Explain necessary units, CRS, result meanings, lifecycle and failure behavior without diluting qualifications.
 
 **Examples are a separate effort.** Do not write worked examples, tutorials, or placeholder example pages here. Existing docstring examples can render as part of the reference; this exclusion does not require stripping them. Exact page organization is delegated.
 
@@ -60,7 +60,7 @@ Create/configure the private generated-site repository and required access as pa
 
 ## Evidence and completion
 
-The investigation found stale documentation routing, not accidental old-format selection in the current Pourpoint reader. It also found a separate local-raster preservation bug, now fixed in [HFX #68](https://github.com/pourpoint-tools/hfx/pull/68), with [#65](https://github.com/pourpoint-tools/hfx/issues/65) closed. Start HFX work from current main containing that fix; the sibling checkout used during discovery was older. Preserve local raster files/identities and independent verification; do not revive statements that the converter universally omits raster copying.
+The investigation found stale documentation routing, not accidental old-format selection in the current Pourpoint reader. It also found a separate local-raster preservation bug, now fixed in [HFX #68](https://github.com/pourpoint-tools/hfx-rewrite-backup/pull/68), with [#261](https://github.com/pourpoint-tools/hfx/issues/261) closed. Start HFX work from current main containing that fix; the sibling checkout used during discovery was older. Preserve local raster files/identities and independent verification; do not revive statements that the converter universally omits raster copying.
 
 The reader audit passed 101 focused tests and opened the public GRIT manifest; the producer repair reports 246 tests and a bounded manifest check. These are not fresh worldwide vector/raster validation. No full production downloads, integrity audit, scientific recertification, or data regeneration are required for this documentation effort.
 
