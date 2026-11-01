@@ -1,5 +1,6 @@
-"""Release unused dictionary values in already-gathered Arrow selections."""
+"""Chunk-preserving Arrow selection and release of unused dictionary values."""
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -48,6 +49,8 @@ def compact_dictionaries(table: pa.Table) -> pa.Table:
     Call after Arrow take/filter has gathered ordinary value buffers. Arrow's
     gather kernels retain dictionaries even when only one entry is selected.
     """
+    if not table.num_columns:
+        return table
     return pa.Table.from_arrays(
         [
             pa.chunked_array([_compact_dictionary_values(chunk) for chunk in column.chunks], type=column.type)
@@ -55,3 +58,40 @@ def compact_dictionaries(table: pa.Table) -> pa.Table:
         ],
         schema=table.schema,
     )
+
+
+def take_rows(table: pa.Table, indices: list[int]) -> pa.Table:
+    """Gather distinct-row runs without combining variable-width buffers.
+
+    A run never repeats a row or crosses an aligned source batch, so its payload
+    cannot exceed an already representable source array. Duplicate requests form
+    separate runs. Chunk boundaries are an internal representation detail.
+    """
+    if not indices:
+        return table.slice(0, 0)
+    if not table.num_columns:
+        return pa.table({"_row": pa.nulls(len(indices))}).replace_schema_metadata(table.schema.metadata).select([])
+    # ID lookups contain only fixed-width numeric addresses, with no offset ceiling.
+    if all(
+        pa.types.is_integer(field.type) or pa.types.is_floating(field.type) or pa.types.is_boolean(field.type)
+        for field in table.schema
+    ):
+        return table.take(pa.array(indices, type=pa.int64()))
+    batches = table.to_batches()
+    ends = np.cumsum([batch.num_rows for batch in batches])
+    groups = np.searchsorted(ends, indices, side="right")
+    pieces: list[pa.RecordBatch] = []
+    start = 0
+    while start < len(indices):
+        group = int(groups[start])
+        stop = start + 1
+        seen = {indices[start]}
+        while stop < len(indices) and groups[stop] == group and indices[stop] not in seen:
+            seen.add(indices[stop])
+            stop += 1
+        offset = 0 if group == 0 else int(ends[group - 1])
+        # Take gathers nested buffers as well as outer values; slices alone retain
+        # unrelated list children and their dictionaries during IPC serialization.
+        pieces.append(batches[group].take(pa.array([index - offset for index in indices[start:stop]], type=pa.int64())))
+        start = stop
+    return pa.Table.from_batches(pieces, schema=table.schema)

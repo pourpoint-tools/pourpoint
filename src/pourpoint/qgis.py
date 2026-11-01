@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Sequence
+from collections.abc import Buffer, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
@@ -19,6 +20,7 @@ import rasterio
 from rasterio.crs import CRS  # ty: ignore[unresolved-import]
 from shapely.geometry.base import BaseGeometry
 
+from pourpoint._selection import compact_dictionaries
 from pourpoint.features import Feature, RiverNetwork
 from pourpoint.refinement import FootprintRefinement, GranularRefinement, RasterSubset, SubbasinContribution
 from pourpoint.results import BatchIssue, BatchResult, DelineationResult
@@ -54,11 +56,45 @@ def _crs(parent: ET.Element, crs: CRS) -> None:
     _text(spatial, "geographicflag", "true" if crs.is_geographic else "false")
 
 
+class _ArrowSink(io.RawIOBase):
+    """Store one IPC stream as ordered SQLite values, not one aggregate BLOB."""
+
+    def __init__(self, db: sqlite3.Connection, layer: str, kind: str) -> None:
+        super().__init__()
+        self.db, self.layer, self.kind = db, layer, kind
+        self.stream_id = db.execute("SELECT COALESCE(MAX(stream_id), -1) + 1 FROM source_arrow").fetchone()[0]
+        # Leave room for SQLite's complete encoded row, including labels.
+        self.part_size = min(8 * 1024 * 1024, db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) // 2)
+        self.pending = bytearray()
+        self.part = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data: Buffer) -> int:
+        view = memoryview(data)
+        size = len(view)
+        while view:
+            count = min(self.part_size - len(self.pending), len(view))
+            self.pending.extend(view[:count])
+            view = view[count:]
+            if len(self.pending) == self.part_size:
+                self.flush()
+        return size
+
+    def flush(self) -> None:
+        if self.pending:
+            self.db.execute(
+                "INSERT INTO source_arrow VALUES (?, ?, ?, ?, ?)",
+                (self.layer, self.kind, self.pending, self.stream_id, self.part),
+            )
+            self.pending.clear()
+            self.part += 1
+
+
 def _arrow(db: sqlite3.Connection, layer: str, kind: str, table: pa.Table) -> None:
-    sink = pa.BufferOutputStream()
-    with pa.ipc.new_stream(sink, table.schema) as writer:
+    with _ArrowSink(db, layer, kind) as sink, pa.ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table)
-    db.execute("INSERT INTO source_arrow VALUES (?, ?, ?)", (layer, kind, sink.getvalue().to_pybytes()))
 
 
 def _quote(name: str) -> str:
@@ -89,7 +125,8 @@ def _initialize(db: sqlite3.Connection) -> None:
         CREATE TABLE gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL,
           geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL, m TINYINT NOT NULL,
           PRIMARY KEY (table_name, column_name));
-        CREATE TABLE source_arrow (layer_name TEXT NOT NULL, kind TEXT NOT NULL, payload BLOB NOT NULL);
+        CREATE TABLE source_arrow (layer_name TEXT NOT NULL, kind TEXT NOT NULL, payload BLOB NOT NULL,
+          stream_id INTEGER NOT NULL, part INTEGER NOT NULL, PRIMARY KEY (stream_id, part));
         CREATE TABLE source_metadata (layer_name TEXT NOT NULL, metadata TEXT NOT NULL);
         CREATE TABLE target_issues (target_index INTEGER, target_name TEXT, code TEXT, reason TEXT);
         CREATE TABLE result_metadata (target_name TEXT, target_index INTEGER, metadata TEXT, original_target BLOB, adjusted_target BLOB);
@@ -118,7 +155,13 @@ class QGISBundle:
     Scalar source fields become ordinary vector columns. Reserved-name collisions
     gain ``source_`` prefixes; ``source_metadata.attribute_columns`` records names.
     Rich values, original WKB and Arrow schemas/metadata are losslessly retained
-    as IPC streams in ``source_arrow``. Result locations are WGS84 WKB in
+    as IPC streams in ``source_arrow``. Each ``stream_id`` identifies one source
+    table, including distinct node records. Concatenate its ``payload`` values
+    in ascending ``part`` order before opening the IPC stream. Small streams
+    occupy one row. Parts are byte segments, not independent IPC streams.
+    Individual geometry and ordinary attribute values must still fit SQLite's
+    value/row limits; segmentation removes the aggregate source-IPC limit only.
+    Result locations are WGS84 WKB in
     ``result_metadata``, alongside provenance; these are not extra map layers.
     """
 
@@ -350,7 +393,12 @@ class QGISBundle:
                                     (source.attributes[field], row + 1),
                                 )
                         original = source.source if isinstance(source, SubbasinContribution) else source
-                        _arrow(db, table, f"feature:{row + 1}", original.table.slice(original.row, 1))
+                        _arrow(
+                            db,
+                            table,
+                            f"feature:{row + 1}",
+                            compact_dictionaries(original.table.slice(original.row, 1).take([0])),
+                        )
                 if columns:
                     db.execute(
                         "INSERT INTO source_metadata VALUES (?, ?)", (table, json.dumps({"attribute_columns": columns}))
@@ -377,7 +425,7 @@ class QGISBundle:
                 if network.node_relationships is not None:
                     _arrow(db, table, "node_relationships", network.node_relationships)
                 for node in network.nodes:
-                    _arrow(db, table, "node", node.table.slice(node.row, 1))
+                    _arrow(db, table, "node", compact_dictionaries(node.table.slice(node.row, 1).take([0])))
                 db.execute("INSERT INTO source_metadata VALUES (?, ?)", (table, json.dumps(dict(network.declarations))))
         for index, (name, subset, group) in enumerate(self._rasters):
             filename = f"raster_{index}.tif"

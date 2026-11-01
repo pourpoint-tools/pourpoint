@@ -352,3 +352,47 @@ def test_candidates_numpy_bounding_boxes(tmp_path: Path) -> None:
             fabric.candidates("catchments", np.array([3.0, 1.0, 1.0, 1.0]))
         with pytest.raises(ValueError, match="bbox exceeds float32 coordinate range"):
             fabric.candidates("catchments", (0.0, 0.0, 1e40, 1.0))
+
+
+def test_selection_does_not_coalesce_binary_chunks() -> None:
+    from pourpoint._selection import take_rows
+
+    schema = pa.schema([pa.field("value", pa.binary(), metadata={b"unit": b"raw"})], metadata={b"source": b"test"})
+    table = pa.Table.from_arrays([pa.chunked_array([[b"a" * 64, b"b" * 64], [b"c" * 64]])], schema=schema)
+    # A reduced single-array payload ceiling: every source chunk fits 128 bytes.
+    selected = take_rows(table, [2, 0, 1, 0, 1, 2])
+    assert selected["value"].to_pylist() == [b"c" * 64, b"a" * 64, b"b" * 64, b"a" * 64, b"b" * 64, b"c" * 64]
+    assert all(chunk.buffers()[2].size <= 128 for chunk in selected["value"].chunks)
+    assert selected.schema.equals(schema, check_metadata=True)
+
+
+def test_readers_keep_selections_in_representable_chunks(tmp_path: Path) -> None:
+    from pourpoint import HydroFabric
+    from pourpoint.features import Subbasin
+
+    with HydroFabric(make_spatial_bundle(tmp_path), cache=False) as fabric:
+        records = fabric.records("catchments", [40, 10, 40, 10, 30])
+        candidates = fabric.candidates("catchments", (0, 0, 5, 5))
+        relationships = fabric.relationships("catchments", [40, 10, 40, 10, 30])
+    assert records["id"].to_pylist() == [40, 10, 40, 10, 30]
+    assert relationships["id"].to_pylist() == [40, 10, 40, 10, 30]
+    assert relationships["downstream_ids"].to_pylist() == [[], [20, 30], [], [20, 30], [40]]
+    # Fixture source batches/row groups hold two rows. This guards both gathers,
+    # including duplicate expansion in one group and final global reordering.
+    for table in (records, candidates, relationships):
+        assert all(batch.num_rows <= 2 for batch in table.to_batches())
+    assert Subbasin(records, 1).geometry.equals(box(1, 1, 1.25, 1.25))
+
+
+def test_selection_preserves_chunk_local_ordered_dictionaries_and_empty_projection() -> None:
+    from pourpoint._selection import compact_dictionaries, take_rows
+
+    arrays = [
+        pa.DictionaryArray.from_arrays(pa.array([0, 1], type=pa.int8()), pa.array(values), ordered=True)
+        for values in (["b", "a"], ["d", "c"])
+    ]
+    table = pa.table({"label": pa.chunked_array(arrays)})
+    result = compact_dictionaries(take_rows(table, [3, 0, 3, 1]))
+    assert result["label"].to_pylist() == ["c", "b", "c", "a"]
+    assert result.schema.equals(table.schema, check_metadata=True)
+    assert take_rows(table.select([]), [3, 0, 3]).num_rows == 3

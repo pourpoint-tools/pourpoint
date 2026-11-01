@@ -196,3 +196,86 @@ def test_standalone_refinement_export_retains_publication_metadata(tmp_path: Pat
         name, index, encoded = db.execute("SELECT target_name, target_index, metadata FROM result_metadata").fetchone()
     assert (name, index) == ("station", 0)
     assert json.loads(encoded) == metadata
+
+
+def test_relationship_ipc_exceeds_sqlite_value_limit_without_losing_metadata() -> None:
+    from pourpoint.qgis import _arrow, _initialize
+
+    schema = pa.schema(
+        [pa.field("id", pa.int64()), pa.field("downstream_ids", pa.list_(pa.int64()), metadata={b"target": b"rivers"})],
+        metadata={b"source": b"test"},
+    )
+    table = pa.Table.from_arrays(
+        [pa.array(range(1000)), pa.array([[i + 1, i + 2] for i in range(1000)])], schema=schema
+    )
+    with sqlite3.connect(":memory:") as db:
+        _initialize(db)
+        db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 4096)
+        _arrow(db, "layer_0", "relationships", table)
+        parts = db.execute("SELECT payload FROM source_arrow ORDER BY stream_id, part").fetchall()
+        assert len(parts) > 1
+        restored = pa.ipc.open_stream(b"".join(row[0] for row in parts)).read_all()
+        assert restored.equals(table, check_metadata=True)
+
+
+def test_export_does_not_repeat_unselected_nested_dictionary_values(tmp_path: Path) -> None:
+    dictionary = pa.DictionaryArray.from_arrays(pa.array([0, 1], type=pa.int8()), pa.array(["a", "x" * 100000]))
+    nested = pa.ListArray.from_arrays(pa.array([0, 1, 2]), dictionary)
+    table = pa.table({"id": [1, 2], "geometry": [box(0, 0, 1, 1).wkb] * 2, "nested": nested})
+    folder = QGISBundle().add_vector("selected", [Subbasin(table, 0)] * 3).write(tmp_path / "bundle")
+    with sqlite3.connect(folder / "vectors.gpkg") as db:
+        payloads = db.execute("SELECT payload FROM source_arrow").fetchall()
+    assert len(payloads) == 3
+    for (payload,) in payloads:
+        assert len(payload) < 2000
+        restored = pa.ipc.open_stream(payload).read_all()
+        assert restored.schema.equals(table.schema, check_metadata=True)
+        assert restored.to_pylist() == [{"id": 1, "geometry": box(0, 0, 1, 1).wkb, "nested": ["a"]}]
+
+
+def test_segmented_network_preserves_nodes_relationships_and_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from shapely.geometry import LineString, Point
+
+    import pourpoint.qgis as qgis
+    from pourpoint.features import River, RiverNetwork, SourceNode
+
+    river = pa.table({"id": [1], "geometry": [LineString([(0, 0), (1, 1)]).wkb]})
+    nodes = pa.table({"id": [10, 20], "geometry": [Point(0, 0).wkb, Point(1, 1).wkb]})
+    relationships = pa.table({"id": [1], "downstream_ids": [list(range(2, 1002))]}).replace_schema_metadata(
+        {b"source": b"rivers"}
+    )
+    node_relationships = pa.table({"id": [10, 20], "outgoing_river_ids": [[1], []]})
+    declarations = {"outgoing_river_ids": {"target_domain": "rivers"}}
+    network = RiverNetwork(
+        [River(river, 0)], relationships, [SourceNode(nodes, 0), SourceNode(nodes, 1)], node_relationships, declarations
+    )
+    initialize = qgis._initialize
+
+    def limited(db: sqlite3.Connection) -> None:
+        initialize(db)
+        db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 4096)
+
+    monkeypatch.setattr(qgis, "_initialize", limited)
+    folder = QGISBundle().add_vector("rivers", network).write(tmp_path / "network")
+    with sqlite3.connect(folder / "vectors.gpkg") as db:
+        streams = []
+        for (stream_id,) in db.execute("SELECT DISTINCT stream_id FROM source_arrow ORDER BY stream_id"):
+            payload = b"".join(
+                row[0]
+                for row in db.execute(
+                    "SELECT payload FROM source_arrow WHERE stream_id = ? ORDER BY part", (stream_id,)
+                )
+            )
+            streams.append(pa.ipc.open_stream(payload).read_all())
+        assert db.execute("SELECT source_id, target_id FROM river_connections ORDER BY target_id").fetchall() == [
+            (1, i) for i in range(2, 1002)
+        ]
+        assert declarations in [json.loads(row[0]) for row in db.execute("SELECT metadata FROM source_metadata")]
+    for actual, expected in zip(
+        streams, [river, relationships, node_relationships, nodes.slice(0, 1), nodes.slice(1, 1)], strict=True
+    ):
+        assert actual.equals(expected, check_metadata=True)
