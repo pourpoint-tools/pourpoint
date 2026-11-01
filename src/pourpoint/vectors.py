@@ -11,7 +11,7 @@ import numpy as np
 import pyarrow as pa
 
 from pourpoint._selection import compact_dictionaries
-from pourpoint.metadata import Bounds, SpatialManifest
+from pourpoint.metadata import BoundingBox, SpatialManifest
 from pourpoint.spatial import RowGroupBounds, conservative_bounds, overlap
 from pourpoint.storage import Source
 
@@ -210,7 +210,7 @@ class VectorReader:
         )
 
     def candidates(
-        self, bounds: Bounds, levels: Sequence[int] | None = None, columns: Sequence[str] | None = None
+        self, bounds: BoundingBox, levels: Sequence[int] | None = None, columns: Sequence[str] | None = None
     ) -> pa.Table:
         """Conservative bbox overlap, not exact geometry intersection."""
         envelope = conservative_bounds(bounds)

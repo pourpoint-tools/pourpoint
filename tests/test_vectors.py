@@ -318,3 +318,37 @@ def test_sparse_int64_ids_across_lookup_batches(tmp_path: Path) -> None:
         assert fabric.records("catchments", requested)["id"].to_pylist() == requested
         with pytest.raises(KeyError):
             fabric.records("catchments", [2**53 + 2])
+
+
+def test_candidates_numpy_bounding_boxes(tmp_path: Path) -> None:
+    import numpy as np
+
+    from pourpoint import HydroFabric
+
+    path = make_spatial_bundle(tmp_path)
+    with HydroFabric(path, cache=False) as fabric:
+        baseline = fabric.candidates("catchments", (1.0, 1.0, 3.0, 1.0), columns=["id"])
+
+        # NumPy scalars in tuples and lists
+        mixed_tuple = (np.float64(1.0), 1.0, np.float32(3.0), np.int64(1))
+        mixed_list = [np.int64(1), 1.0, np.float64(3.0), 1]
+        assert fabric.candidates("catchments", mixed_tuple, columns=["id"]).equals(baseline)
+        assert fabric.candidates("catchments", mixed_list, columns=["id"]).equals(baseline)
+
+        # 1D NumPy arrays
+        arr_float = np.array([1.0, 1.0, 3.0, 1.0], dtype=np.float64)
+        arr_int = np.array([1, 1, 3, 1], dtype=np.int32)
+        assert fabric.candidates("catchments", arr_float, columns=["id"]).equals(baseline)
+        assert fabric.candidates("catchments", arr_int, columns=["id"]).equals(baseline)
+
+        # Rejections and boundaries
+        with pytest.raises(ValueError, match="bbox must be finite numbers"):
+            fabric.candidates("catchments", (True, 1.0, 3.0, 1.0))
+        with pytest.raises(ValueError, match="bbox must be finite numbers"):
+            fabric.candidates("catchments", np.array([True, False, True, False]))
+        with pytest.raises(ValueError, match="bbox must contain four coordinates"):
+            fabric.candidates("catchments", np.array([[1.0, 1.0], [3.0, 1.0]]))
+        with pytest.raises(ValueError, match="bbox must be ordered"):
+            fabric.candidates("catchments", np.array([3.0, 1.0, 1.0, 1.0]))
+        with pytest.raises(ValueError, match="bbox exceeds float32 coordinate range"):
+            fabric.candidates("catchments", (0.0, 0.0, 1e40, 1.0))
