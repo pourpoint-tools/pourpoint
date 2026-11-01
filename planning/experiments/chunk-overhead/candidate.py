@@ -22,7 +22,9 @@ def take_rows(table: pa.Table, indices: list[int], *, byte_limit: int = 64 * 102
         or pa.types.is_string(field.type)
         for field in table.schema
     )
-    if numeric or not supported or table.get_total_buffer_size() > byte_limit:
+    # Retained buffers catch large backing slices; logical bytes count shared
+    # chunks repeatedly, bounding the payload of a distinct-row gather.
+    if numeric or not supported or table.get_total_buffer_size() > byte_limit or table.nbytes > byte_limit:
         return baseline(table, indices)
     pieces: list[pa.Table] = []
     start = 0

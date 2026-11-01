@@ -52,3 +52,12 @@ def test_nested_variable_width_and_numeric_values() -> None:
     numeric = pa.table({"id": pa.chunked_array([[1, 2], [3, 4]])})
     assert take_rows(numeric, [3, 0, 3])["id"].to_pylist() == [4, 1, 4]
     assert take_rows(table, []).schema.equals(table.schema, check_metadata=True)
+
+
+def test_shared_source_buffers_bound_logical_gather_payload() -> None:
+    source = pa.array([b"x" * 64], type=pa.binary())
+    table = pa.table({"value": pa.chunked_array([source] * 4)})
+    assert table.get_total_buffer_size() < 128 < table.nbytes
+    result = take_rows(table, [3, 0, 2, 1], byte_limit=128)
+    assert result["value"].to_pylist() == [b"x" * 64] * 4
+    assert all(chunk.buffers()[2].size <= 128 for chunk in result["value"].chunks)
