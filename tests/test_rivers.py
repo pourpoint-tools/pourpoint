@@ -188,3 +188,18 @@ def test_snap_endpoint_ties_and_late_validation() -> None:
     assert snap(target=target, onto=LineString([(1, 0), (1, 0)]), radius=120_000).equals(Point(1, 0))
     with pytest.raises(ValueError, match="antimeridian"):
         snap(target=target, onto=MultiLineString([[(-1, 0), (1, 0)], [(179, 0), (-179, 0)]]), radius=0)
+
+
+def test_downstream_endpoint_inference_uses_each_selected_river_row(tmp_path: Path) -> None:
+    from shapely import union_all
+
+    from pourpoint.rivers import select_rivers
+
+    footprint = union_all([box(0.5, -0.5, 1.5, 0.5), box(2.5, -0.8, 3.5, -0.4)])
+    with HydroFabric(river_publication(tmp_path / "rivers", orientation=0)) as fabric:
+        network = select_rivers(fabric=fabric, target=footprint, include_downstream=True)
+    rivers = {river.id: river for river in network.rivers}
+    assert list(rivers) == [30, 10, 20, 40]
+    assert rivers[10].geometry.equals(LineString([(0.5, 0), (2, 0)]))
+    # River 30 is also reached from river 10, so retain its whole source line.
+    assert rivers[30].geometry.equals(LineString([(2, 0), (3, -1), (4, 0)]))
