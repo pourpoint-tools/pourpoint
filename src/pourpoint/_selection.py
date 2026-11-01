@@ -60,12 +60,32 @@ def compact_dictionaries(table: pa.Table) -> pa.Table:
     )
 
 
-def take_rows(table: pa.Table, indices: list[int]) -> pa.Table:
-    """Gather distinct-row runs without combining variable-width buffers.
+# Keep even bit-packed list children below signed 32-bit element offsets.
+_GATHER_BYTE_LIMIT = 128 * 1024 * 1024
 
-    A run never repeats a row or crosses an aligned source batch, so its payload
-    cannot exceed an already representable source array. Duplicate requests form
-    separate runs. Chunk boundaries are an internal representation detail.
+
+def _bounded_gather_type(dtype: pa.DataType) -> bool:
+    if pa.types.is_struct(dtype):
+        return dtype.num_fields > 0 and all(_bounded_gather_type(field.type) for field in dtype)
+    if pa.types.is_list(dtype) or pa.types.is_large_list(dtype):
+        return _bounded_gather_type(dtype.value_type)
+    return (
+        pa.types.is_integer(dtype)
+        or pa.types.is_floating(dtype)
+        or pa.types.is_boolean(dtype)
+        or pa.types.is_binary(dtype)
+        or pa.types.is_string(dtype)
+        or pa.types.is_large_binary(dtype)
+        or pa.types.is_large_string(dtype)
+    )
+
+
+def take_rows(table: pa.Table, indices: list[int]) -> pa.Table:
+    """Gather requested rows while bounding variable-width output arrays.
+
+    Bounded interleaved gathers avoid excessive small chunks. Other requests use
+    distinct-row runs within aligned source batches, preserving representable
+    source payloads. Values, duplicates and schema survive either path.
     """
     if not indices:
         return table.slice(0, 0)
@@ -80,6 +100,19 @@ def take_rows(table: pa.Table, indices: list[int]) -> pa.Table:
     batches = table.to_batches()
     ends = np.cumsum([batch.num_rows for batch in batches])
     groups = np.searchsorted(ends, indices, side="right")
+    # Ordinary monotone requests already produce few chunks. For interleaving,
+    # logical bytes count shared source chunks repeatedly, unlike retained bytes.
+    # Maximum row multiplicity bounds duplicate expansion; ordinary list/struct
+    # children cannot overlap within a source chunk. Other nesting stays below.
+    if (
+        len(batches) > 1
+        and np.count_nonzero(groups[1:] != groups[:-1]) >= len(batches)
+        and all(_bounded_gather_type(field.type) for field in table.schema)
+        and table.nbytes <= _GATHER_BYTE_LIMIT
+        and table.get_total_buffer_size() <= _GATHER_BYTE_LIMIT
+        and table.nbytes * int(np.bincount(indices, minlength=table.num_rows).max()) <= _GATHER_BYTE_LIMIT
+    ):
+        return table.take(pa.array(indices, type=pa.int64()))
     pieces: list[pa.RecordBatch] = []
     start = 0
     while start < len(indices):
