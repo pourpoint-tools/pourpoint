@@ -68,8 +68,8 @@ def _oriented_line(river: River, network: RiverNetwork) -> LineString:
     if orientation == 2:
         return shapely.reverse(line)
     node_ids: dict[str, list[int]] = {}
-    rows = network.relationships.to_pylist()
-    row = next(item for item in rows if item["id"] == river.id)
+    # river_network materializes features and relationships in the same requested ID order.
+    row = network.relationships.slice(river.row, 1).to_pylist()[0]
     for end in ("upstream", "downstream"):
         ids = row.get(f"{end}_node_ids", [])
         source_id = river.attributes.get(f"{end}_node_id")
