@@ -371,7 +371,6 @@ def test_selection_does_not_coalesce_binary_chunks(monkeypatch: pytest.MonkeyPat
 
 def test_readers_keep_selections_in_representable_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from pourpoint import HydroFabric, _selection
-
     from pourpoint.features import Subbasin
 
     monkeypatch.setattr(_selection, "_GATHER_BYTE_LIMIT", 1)
