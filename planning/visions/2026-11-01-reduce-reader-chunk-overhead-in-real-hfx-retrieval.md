@@ -36,6 +36,6 @@ The original giant-watershed reproduction is not required. Preserve large-payloa
 
 ## Deliverable
 
-Deliver a focused production change when a candidate qualifies, with regression coverage and concise reproducible comparison evidence identifying baseline and selected revisions, data, environment, request patterns and measurement limits. Explain why the chosen approach is preferable to the alternatives actually tried; no fixed candidate count is required. Run the relevant tests, Ruff and ty through `uv`.
+Deliver a focused production change when a candidate qualifies, with regression coverage and concise reproducible comparison evidence identifying baseline and selected revisions, data, environment, request patterns and measurement limits. Update any documentation and public API docstrings affected by the delivered change; do not rewrite usage documentation when the public behavior remains unchanged. Explain why the chosen approach is preferable to the alternatives actually tried; no fixed candidate count is required. Run the relevant tests, Ruff and ty through `uv`.
 
 If none qualifies, retain useful evidence and explain which constraint prevented adoption. Do not weaken the constraints, ship the least-bad candidate, or broaden scope to force success. Report either outcome on #198. Implementation and its normal review remain a separate workflow from publishing this vision.
