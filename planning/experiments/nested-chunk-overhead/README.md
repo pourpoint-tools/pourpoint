@@ -2,7 +2,7 @@
 
 Selected: bounded interleaved gather; production change is limited to `_selection.py`. Related: [published vision](../../visions/2026-11-01-reduce-reader-chunk-overhead-in-real-hfx-retrieval.md), [#198](https://github.com/pourpoint-tools/pourpoint/issues/198).
 
-Baseline `fb9963f` uses the unchanged reader from #200; `baseline.py` preserves its selection helpers. `unconditional.py` first tried bounded nested whole-table gather. Ordinary nine-river candidate retrieval slowed repeatedly (see `unconditional-repeat.jsonl`), so that approach was rejected rather than averaged against interleaving gains. `candidate.py` instead considers bounded gather only when requests cross aligned source batches more often than a monotone traversal. It retains the baseline single-batch path and does not coalesce ordinary monotone selections.
+Selected production revision: `9c8b742` (subsequent evidence-only updates do not change the mechanism). Baseline `fb9963f` uses the unchanged reader from #200; `baseline.py` preserves its selection helpers. `unconditional.py` first tried bounded nested whole-table gather. Ordinary nine-river candidate retrieval slowed repeatedly (see `unconditional-repeat.jsonl`), so that approach was rejected rather than averaged against interleaving gains. `candidate.py` instead considers bounded gather only when requests cross aligned source batches more often than a monotone traversal. It retains the baseline single-batch path and does not coalesce ordinary monotone selections.
 
 ## Payload reasoning
 
