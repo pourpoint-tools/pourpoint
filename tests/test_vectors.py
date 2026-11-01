@@ -354,8 +354,11 @@ def test_candidates_numpy_bounding_boxes(tmp_path: Path) -> None:
             fabric.candidates("catchments", (0.0, 0.0, 1e40, 1.0))
 
 
-def test_selection_does_not_coalesce_binary_chunks() -> None:
+def test_selection_does_not_coalesce_binary_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pourpoint import _selection
     from pourpoint._selection import take_rows
+
+    monkeypatch.setattr(_selection, "_GATHER_BYTE_LIMIT", 128)
 
     schema = pa.schema([pa.field("value", pa.binary(), metadata={b"unit": b"raw"})], metadata={b"source": b"test"})
     table = pa.Table.from_arrays([pa.chunked_array([[b"a" * 64, b"b" * 64], [b"c" * 64]])], schema=schema)
@@ -366,9 +369,12 @@ def test_selection_does_not_coalesce_binary_chunks() -> None:
     assert selected.schema.equals(schema, check_metadata=True)
 
 
-def test_readers_keep_selections_in_representable_chunks(tmp_path: Path) -> None:
-    from pourpoint import HydroFabric
+def test_readers_keep_selections_in_representable_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pourpoint import HydroFabric, _selection
+
     from pourpoint.features import Subbasin
+
+    monkeypatch.setattr(_selection, "_GATHER_BYTE_LIMIT", 1)
 
     with HydroFabric(make_spatial_bundle(tmp_path), cache=False) as fabric:
         records = fabric.records("catchments", [40, 10, 40, 10, 30])
