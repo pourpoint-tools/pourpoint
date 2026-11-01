@@ -10,7 +10,7 @@ from typing import cast
 import numpy as np
 import pyarrow as pa
 
-from pourpoint._selection import compact_dictionaries
+from pourpoint._selection import compact_dictionaries, take_rows
 from pourpoint.metadata import BoundingBox, SpatialManifest
 from pourpoint.spatial import RowGroupBounds, conservative_bounds, overlap
 from pourpoint.storage import Source
@@ -98,7 +98,7 @@ class _IndexedIPC:
             if group == len(self.ranges) or value < self.ranges[group][0]:
                 raise KeyError(f"unknown ID {value}")
             groups.setdefault(group, []).append((position, value))
-        pieces: list[pa.RecordBatch] = []
+        pieces: list[pa.Table] = []
         positions: list[int] = []
         for group, queries in groups.items():
             batch = self._reader.get_batch(group)
@@ -119,11 +119,9 @@ class _IndexedIPC:
                     raise KeyError(f"unknown ID {value}")
                 indices.append(index)
                 positions.append(position)
-            pieces.append(batch.take(pa.array(indices, type=pa.int64())))
+            pieces.append(take_rows(pa.Table.from_batches([batch]), indices))
         self.source.check_artifact(self.data)
-        return compact_dictionaries(
-            pa.Table.from_batches(pieces).take(pa.array(np.argsort(positions), type=pa.int64())).select(names)
-        )
+        return compact_dictionaries(take_rows(pa.concat_tables(pieces), np.argsort(positions).tolist()).select(names))
 
 
 class VectorReader:
@@ -197,7 +195,7 @@ class VectorReader:
                 raise ValueError("lookup: feature address out of bounds")
             self.source.prefetch_parquet(self.family.data, self.manifest.artifacts[self.family.data], group, projection)
             table = self._file.read_row_group(group, columns=projection, use_threads=False)
-            selected = table.take(pa.array([r for _, _, r in queries], type=pa.int64()))
+            selected = take_rows(table, [r for _, _, r in queries])
             if selected["id"].to_pylist() != [v for _, v, _ in queries]:
                 raise ValueError("lookup: addressed feature ID mismatch")
             pieces.append(selected)
@@ -205,9 +203,7 @@ class VectorReader:
         self.source.check_artifact(self.family.data)
         if not pieces:
             return _empty(self.schema, names)
-        return compact_dictionaries(
-            pa.concat_tables(pieces).take(pa.array(np.argsort(positions), type=pa.int64())).select(names)
-        )
+        return compact_dictionaries(take_rows(pa.concat_tables(pieces), np.argsort(positions).tolist()).select(names))
 
     def candidates(
         self, bounds: BoundingBox, levels: Sequence[int] | None = None, columns: Sequence[str] | None = None
