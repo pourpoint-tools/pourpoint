@@ -4,48 +4,48 @@ Related: [vision](../../visions/2026-11-01-reduce-chunk-overhead-without-slowing
 
 ## Finding
 
-Small primitive tables can avoid the random-order chunk explosion. This is **not a production recommendation**: ordinary multi-chunk selections use more RSS, nested/dictionary/large inputs retain the baseline, and bounded real retrieval shows no established improvement. No repeatable speed regression was established in this matrix; that is not proof of the strict no-slowdown requirement for all supported requests. No production code changed.
+Small primitive tables can avoid the random-order chunk explosion. This is **not a production recommendation**: ordinary multi-chunk selections use more RSS, nested/dictionary/large inputs retain the baseline, and bounded real retrieval shows no established improvement. The strict no-slowdown requirement remains unproven; small timing differences must not be treated as equivalence. No production code changed.
 
-Baseline: `ab76562` (selection implementation unchanged from `58ddc23`). Candidate and probe revision: `9bc240e22c9979ab7d85cfc2d000b260ff549d80`. Date: 2026-11-01. Python 3.13.14, Arrow 25.0.1, macOS 15.7.3 arm64, mimalloc. Existing project dependencies; psutil supplied with `uv run --with psutil`. No thread-count overrides. Timings ran serially, not concurrently with other study timings; normal machine activity was not controlled.
+Baseline: `ab76562` (selection implementation unchanged from `58ddc23`). Final candidate revision: `6b18fc2089f82de358dc2b2473b9d3839079309a`; probes unchanged from `9bc240e22c9979ab7d85cfc2d000b260ff549d80`. Date: 2026-11-01. Python 3.13.14, Arrow 25.0.1, macOS 15.7.3 arm64, mimalloc. Existing project dependencies; psutil supplied with `uv run --with psutil`. No thread-count overrides. Timings ran serially, not concurrently with other study timings; normal machine activity was not controlled.
 
 ## Mechanism and correctness
 
-`candidate.py` permits whole-table take only for numeric/binary/string fields with **total retained source buffers <=64 MiB**. It splits requests before repeated source rows, so each gather's variable payload cannot exceed the source payload. This conservative experimental constant keeps eligible payload well below signed 32-bit offset limits; it is not a selected production setting. Numeric-only selections use the existing fast path. Nested, dictionary, extension and all other types, larger inputs, empty requests and empty projections use the unchanged baseline. There is no preparation cache or deferred candidate work.
+`candidate.py` permits whole-table take only for numeric/binary/string fields with **both total retained source buffers and logical source bytes <=64 MiB**. It splits requests before repeated source rows, so each gather's variable payload cannot exceed the source payload. This conservative experimental constant keeps eligible payload well below signed 32-bit offset limits; it is not a selected production setting. Numeric-only selections use the existing fast path. Nested, dictionary, extension and all other types, larger inputs, empty requests and empty projections use the unchanged baseline. There is no preparation cache or deferred candidate work.
 
-The bound uses `get_total_buffer_size`, not logical `nbytes`; a slice retaining a large underlying buffer is ineligible. Unsupported nested/dictionary types never use the new gather. Consequently this candidate does **not** demonstrate a general large-result optimization. Duplicate runs can still be numerous. No caller batching or source type conversion is used.
+The bound checks both `get_total_buffer_size` and `nbytes`: retained bytes exclude large backing slices, while logical bytes count repeated or overlapping chunks separately. Retained bytes alone deduplicate shared buffers and cannot bound gathered payload. For eligible primitive binary/string fields, logical bytes include every source occurrence's variable payload; each gather selects distinct row positions, so its payload cannot exceed that logical bound. Unsupported nested/dictionary types never use the new gather. Consequently this candidate does **not** demonstrate a general large-result optimization. Duplicate runs can still be numerous. No caller batching or source type conversion is used.
 
-Four focused tests independently check values, duplicate order, field/schema metadata, numeric/empty paths, nested binary values and chunk-local ordered dictionary meaning. A reduced 128-byte limit proves fallback preserves the existing source-array bound; it does not reproduce a multi-gigabyte offset limit. Sixteen separate synthetic equivalence checks and nine separate real retrieval equivalence checks pass. Performance processes do not perform equivalence checking before timing. Existing vector tests also pass (32 tests including the four new tests).
+Five focused tests independently check values, duplicate order, field/schema metadata, numeric/empty paths, nested binary values and chunk-local ordered dictionary meaning. Reduced 128-byte checks include four chunks sharing one 64-byte binary array (72 retained bytes, 272 logical bytes), which otherwise gather into a 256-byte payload buffer. They prove fallback preserves the existing source-array bound for these cases; it does not reproduce a multi-gigabyte offset limit. Sixteen separate synthetic equivalence checks and nine separate real retrieval equivalence checks pass on the final candidate (`correctness-final.jsonl`, `real-correctness-final.jsonl`). Performance processes do not perform equivalence checking before timing. Existing vector tests also pass (33 tests including the five new tests).
 
 ## Synthetic comparison
 
-Each cell is median **selection plus dictionary compaction milliseconds / current RSS MB**, from three fresh processes. Requests: publication order, reverse order, fixed-seed (198) random interleaving, and interleaving plus a repeated first 10%. All rows selected. Source construction and request generation excluded equally; eligibility checks, duplicate scanning, gather and compaction included. Raw stage timings and memory snapshots are in `synthetic.jsonl`.
+Each cell is median **selection plus dictionary compaction milliseconds / current RSS MB**, from three fresh processes. Requests: publication order, reverse order, fixed-seed (198) random interleaving, and interleaving plus a repeated first 10%. All rows selected. Source construction and request generation excluded equally; eligibility checks, duplicate scanning, gather and compaction included. Raw stage timings and memory snapshots for the final candidate are in `synthetic.jsonl`; `synthetic-original.jsonl` preserves the original revision measurements.
 
 | Rows; binary bytes/row; numeric columns; source chunks | Request | Baseline ms / MB | Candidate ms / MB |
 |---|---|---:|---:|
-| 170000; 32; 9; 17 | ordered | 23.93 / 145 | 13.41 / 167 |
-| 170000; 32; 9; 17 | reversed | 24.02 / 144 | 13.22 / 166 |
-| 170000; 32; 9; 17 | interleaved | 4105.22 / 1109 | 14.98 / 170 |
-| 170000; 32; 9; 17 | duplicates | 4537.61 / 1213 | 16.80 / 172 |
-| 170000; 0; 9; 17 | ordered | 3.22 / 132 | 3.24 / 132 |
-| 170000; 0; 9; 17 | reversed | 3.21 / 132 | 3.23 / 132 |
-| 170000; 0; 9; 17 | interleaved | 3.85 / 134 | 3.86 / 134 |
-| 170000; 0; 9; 17 | duplicates | 4.08 / 136 | 4.12 / 137 |
-| 20000; 1024; 2; 8 | ordered | 4.01 / 143 | 4.16 / 171 |
-| 20000; 1024; 2; 8 | reversed | 4.10 / 143 | 4.10 / 171 |
-| 20000; 1024; 2; 8 | interleaved | 149.01 / 185 | 4.94 / 172 |
-| 20000; 1024; 2; 8 | duplicates | 164.28 / 190 | 5.54 / 172 |
-| 20000; 32; 30; 1 | ordered | 3.52 / 113 | 2.07 / 112 |
-| 20000; 32; 30; 1 | reversed | 3.46 / 113 | 2.01 / 112 |
-| 20000; 32; 30; 1 | interleaved | 3.72 / 115 | 2.32 / 114 |
-| 20000; 32; 30; 1 | duplicates | 4.05 / 116 | 2.65 / 114 |
+| 170000; 32; 9; 17 | ordered | 23.02 / 144 | 12.41 / 167 |
+| 170000; 32; 9; 17 | reversed | 23.01 / 144 | 12.02 / 167 |
+| 170000; 32; 9; 17 | interleaved | 3988.57 / 1116 | 14.06 / 169 |
+| 170000; 32; 9; 17 | duplicates | 4466.03 / 1215 | 16.23 / 172 |
+| 170000; 0; 9; 17 | ordered | 3.00 / 132 | 3.04 / 132 |
+| 170000; 0; 9; 17 | reversed | 2.98 / 132 | 3.06 / 131 |
+| 170000; 0; 9; 17 | interleaved | 3.52 / 134 | 3.61 / 134 |
+| 170000; 0; 9; 17 | duplicates | 3.88 / 136 | 3.81 / 136 |
+| 20000; 1024; 2; 8 | ordered | 3.75 / 143 | 3.61 / 171 |
+| 20000; 1024; 2; 8 | reversed | 3.78 / 143 | 3.62 / 171 |
+| 20000; 1024; 2; 8 | interleaved | 143.72 / 185 | 4.41 / 173 |
+| 20000; 1024; 2; 8 | duplicates | 160.21 / 190 | 4.99 / 173 |
+| 20000; 32; 30; 1 | ordered | 3.38 / 112 | 2.07 / 112 |
+| 20000; 32; 30; 1 | reversed | 3.46 / 113 | 2.06 / 112 |
+| 20000; 32; 30; 1 | interleaved | 3.62 / 115 | 2.30 / 114 |
+| 20000; 32; 30; 1 | duplicates | 4.08 / 115 | 2.66 / 115 |
 
-The original 170k interleaved shape falls from 159,989 chunks per column to one. Numeric-only differences are near timer/process noise. The 1KiB-payload ordered case initially looked slower: ten additional fresh pairs gave baseline median 3.994ms (3.893–4.106), candidate 4.050ms (3.839–4.173). Overlap and changing pair direction do not establish a repeatable regression; neither justify a universal percentage allowance. See `ordered-repeat.jsonl`.
+The original 170k interleaved shape falls from 159,989 chunks per column to one. Numeric-only differences are small; this unchanged fast path still does not establish timing equivalence. At original revision `9bc240e`, the 1KiB-payload ordered case initially looked slower: ten additional fresh pairs gave baseline median 3.994ms (3.893–4.106), candidate 4.050ms (3.839–4.173). Seven of ten pairs were slower for the candidate. Overlap is not evidence of equivalence, and changing pair direction does not prove the strict speed constraint. No universal percentage allowance is applied. See `ordered-repeat.jsonl` (original revision only). The final-candidate matrix instead has ordered 1KiB medians 3.75ms baseline / 3.61ms candidate; these three pairs are not a replacement for a universal no-slowdown proof.
 
 ## Real HFX retrieval
 
 Public [GRIT](https://basin-delineations-public.upstream.tech/grit/hfx-v0.4.0/) HFX v0.4.0 (Upstream Tech public publication), 503 catchments from the existing Spain-river delineation receipt; ~827KB full record output, two lookup batches. `real-requests.json` records public IDs sorted by source lookup `(block,row)` and the public bounding box. No private dataset or cache path is committed. Keep the publication’s attribution/provenance with downloaded data; no source geometries are redistributed here. Published catchment artifact SHA-256: `f91badc69e90a3589862482bfa24c44ac061a23734c330092ac3aa1b7de25b73`; rivers: `7b45cdb8eb852cf8297523f4330f3ac3a099bcbbce0991ad295ed49531dff0ea`; families reference `vectors/2026-10-18-final/`. Existing offline cache supplied the data, so this is disk-cache retrieval, not a network benchmark.
 
-Records select all fields; relationships select `id, upstream_ids` (other relationship columns were not fully cached). Ordinary spatial retrieval selects nine level-1 rivers (~6KB). Full records contain nested bbox and relationships contain lists, so these selections fall back. The numeric lookup path remains active. This check establishes integration correctness and bounds overhead, not a real-data chunk-reduction win. All operations are timed through `HydroFabric`, including lookup/read/gather/compaction. Opening the fabric is excluded equally. Three fresh processes per cell each make one first query then three warm queries. See `real.jsonl` for first-query timing, memory, payload and chunk counts.
+Records select all fields; relationships select `id, upstream_ids` (other relationship columns were not fully cached). Ordinary spatial retrieval selects nine level-1 rivers (~6KB). Full records contain nested bbox and relationships contain lists, so these selections fall back. The numeric lookup path remains active. This check establishes integration correctness and bounds overhead, not a real-data chunk-reduction win. All operations are timed through `HydroFabric`, including lookup/read/gather/compaction. Opening the fabric is excluded equally. Three fresh processes per cell each make one first query then three warm queries. These timing receipts and `real-repeat.jsonl` measure original revision `9bc240e`, not the final guard. All real projections are numeric or unsupported and short-circuit before either byte-bound check; their executed paths are unchanged. Final-candidate equivalence is independently rerun, not relabeled timing evidence. See `real.jsonl` for first-query timing, memory, payload and chunk counts.
 
 | Operation | Request | Baseline warm ms | Candidate warm ms |
 |---|---|---:|---:|
@@ -69,7 +69,7 @@ The initially slower duplicate-relationship result did not repeat: eight further
 
 `arrow_live` is current Arrow-pool allocation, excluding NumPy-backed source buffers, Python objects and many native allocations. `rss` is current process resident memory; `peak_rss` is process lifetime high-water RSS including setup and transient workspace. These are bytes in raw receipts (macOS ru_maxrss already uses bytes; Linux is converted). Snapshots are before retrieval, after live output, and (synthetic only) after output deletion and GC. No allocator purge is forced.
 
-Example original interleaved first pair: baseline Arrow-live 6.12→129.03MB, RSS 123.50→1106.71MB, peak 1131.36MB. Candidate Arrow-live 6.12→24.50MB, RSS 125.32→169.69MB, peak 169.69MB. After deleting output, Arrow-live returns to 6.12MB in both; RSS stays ~1107/170MB. Elevated RSS alone is not a live-object leak. Large divergence between pool and RSS is consistent with native/Python chunk metadata and allocator retention but does not precisely attribute those bytes. Ordered candidate RSS rises despite fewer chunks, consistent with coalescing workspace/allocator retention; current/peak RSS cannot by themselves partition workspace from retained free pages.
+Example original-revision interleaved first pair (`synthetic-original.jsonl`): baseline Arrow-live 6.12→129.03MB, RSS 123.50→1106.71MB, peak 1131.36MB. Candidate Arrow-live 6.12→24.50MB, RSS 125.32→169.69MB, peak 169.69MB. After deleting output, Arrow-live returns to 6.12MB in both; RSS stays ~1107/170MB. Elevated RSS alone is not a live-object leak. Large divergence between pool and RSS is consistent with native/Python chunk metadata and allocator retention but does not precisely attribute those bytes. Ordered candidate RSS rises despite fewer chunks, consistent with coalescing workspace/allocator retention; current/peak RSS cannot by themselves partition workspace from retained free pages.
 
 ## Reproduce
 
