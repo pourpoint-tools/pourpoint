@@ -3,23 +3,36 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import PurePosixPath
 from types import MappingProxyType
-from typing import cast
+from typing import Any, cast
 from urllib.parse import unquote, urlsplit
+
+import numpy as np
+import numpy.typing as npt
 
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 type Bounds = tuple[float, float, float, float]
+type RealCoordinate = float | int | np.floating[Any] | np.integer[Any]
+type BoundingBox = Sequence[RealCoordinate] | npt.NDArray[np.floating[Any] | np.integer[Any]]
 
 
 def bounds(value: object) -> Bounds:
     """Validate a non-wrapping EPSG:4326 search envelope (degrees)."""
-    if not isinstance(value, (list, tuple)) or len(value) != 4:
+    if isinstance(value, np.ndarray):
+        if value.ndim != 1 or value.shape != (4,):
+            raise ValueError("bbox must contain four coordinates")
+    elif not isinstance(value, (list, tuple)) or len(value) != 4:
         raise ValueError("bbox must contain four coordinates")
-    if any(type(v) not in (int, float) or not isfinite(v) for v in value):
+    if any(
+        isinstance(v, (bool, np.bool_))
+        or not isinstance(v, (int, float, np.floating, np.integer))
+        or not isfinite(v)
+        for v in value
+    ):
         raise ValueError("bbox must be finite numbers")
     result = cast(Bounds, tuple(float(v) for v in value))
     if result[0] > result[2] or result[1] > result[3]:

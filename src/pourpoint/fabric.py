@@ -10,7 +10,7 @@ from typing import Self
 import pyarrow as pa
 
 from pourpoint.features import River, RiverNetwork, SourceNode, Subbasin
-from pourpoint.metadata import Bounds, SpatialManifest
+from pourpoint.metadata import BoundingBox, SpatialManifest
 from pourpoint.rasters import RasterReader
 from pourpoint.storage import Source, TransferStats
 from pourpoint.vectors import VectorReader
@@ -139,7 +139,7 @@ class HydroFabric:
         return self._reader(domain).records(ids, columns=columns)
 
     def candidates(
-        self, domain: str, bounds: Bounds, *, levels: Sequence[int] | None = None, columns: Sequence[str] | None = None
+        self, domain: str, bounds: BoundingBox, *, levels: Sequence[int] | None = None, columns: Sequence[str] | None = None
     ) -> pa.Table:
         """Read conservative bounding-box candidates, not exact intersections.
 
@@ -149,6 +149,7 @@ class HydroFabric:
             Published ``catchments``, ``rivers`` or ``river_nodes`` family.
         bounds
             Non-wrapping ``(west, south, east, north)`` envelope in EPSG:4326.
+            Accepts a four-element sequence or 1D NumPy array of real numbers.
         levels
             Nonnegative source levels to retain; omitted means all levels.
             Levels are independent between feature families.

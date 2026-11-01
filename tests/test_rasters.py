@@ -76,6 +76,40 @@ def test_native_window_precision_masks_and_lifetime(spatial_hfx: Path) -> None:
         dataset.rasters.read(request)
 
 
+def test_raster_prepare_numpy_bounding_boxes(spatial_hfx: Path) -> None:
+    from pourpoint.rasters import RasterCoverageError
+
+    add_pair(spatial_hfx)
+    with HydroFabric(spatial_hfx, cache=False) as dataset:
+        baseline = dataset.rasters.prepare((0.2, 0.2, 3.8, 1.8))
+
+        # NumPy scalars in tuples and lists
+        mixed_tuple = (np.float64(0.2), np.float32(0.2), np.float64(3.8), np.float32(1.8))
+        mixed_list = [np.float64(0.2), 0.2, 3.8, np.float32(1.8)]
+        assert dataset.rasters.prepare(mixed_tuple) == baseline
+        assert dataset.rasters.prepare(mixed_list) == baseline
+
+        # 1D NumPy arrays
+        arr_float = np.array([0.2, 0.2, 3.8, 1.8], dtype=np.float64)
+        arr_int = np.array([0, 0, 4, 2], dtype=np.int32)
+        assert dataset.rasters.prepare(arr_float) == baseline
+        assert dataset.rasters.prepare(arr_int) == dataset.rasters.prepare((0, 0, 4, 2))
+
+        # Rejections and boundaries
+        with pytest.raises(ValueError, match="bbox must be finite numbers"):
+            dataset.rasters.prepare((True, 0.2, 3.8, 1.8))
+        with pytest.raises(ValueError, match="bbox must be finite numbers"):
+            dataset.rasters.prepare(np.array([True, False, True, False]))
+        with pytest.raises(ValueError, match="bbox must contain four coordinates"):
+            dataset.rasters.prepare(np.array([[0.2, 0.2], [3.8, 1.8]]))
+        with pytest.raises(ValueError, match="raster bounds must have positive area"):
+            dataset.rasters.prepare(np.array([1.0, 1.0, 1.0, 2.0]))
+        with pytest.raises(ValueError, match="geographic raster bounds must be within longitude/latitude limits"):
+            dataset.rasters.prepare(np.array([-200.0, 0.0, 3.0, 1.0]))
+        with pytest.raises(RasterCoverageError):
+            dataset.rasters.prepare(np.array([0.0, 0.0, 10.0, 10.0]))
+
+
 def test_raster_only_and_foreign_request(spatial_hfx: Path) -> None:
     add_pair(spatial_hfx)
     with Source(spatial_hfx) as source:

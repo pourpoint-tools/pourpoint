@@ -9,13 +9,13 @@ import numpy.typing as npt
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pourpoint.metadata import Bounds, bounds
+from pourpoint.metadata import BoundingBox, Bounds, bounds
 
 
-def conservative_bounds(value: Bounds) -> Bounds:
+def conservative_bounds(value: BoundingBox) -> Bounds:
     """Expand by one float32 step to include rounded, degenerate HFX bounds."""
     checked = bounds(value)
-    if any(abs(v) > np.finfo(np.float32).max for v in checked):
+    if any(abs(v) > float(np.finfo(np.float32).max) for v in checked):
         raise ValueError("bbox exceeds float32 coordinate range")
     return cast(
         Bounds,

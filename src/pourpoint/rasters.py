@@ -27,7 +27,7 @@ from rasterio.crs import CRS  # ty: ignore[unresolved-import]  # Cython module w
 from rasterio.io import DatasetReader
 from rasterio.windows import Window
 
-from pourpoint.metadata import Bounds, Fingerprint, artifact_path, bounds
+from pourpoint.metadata import BoundingBox, Fingerprint, artifact_path, bounds
 from pourpoint.storage import Source
 
 
@@ -387,13 +387,14 @@ class RasterReader:
             self._pairs[index] = pair
             return pair
 
-    def prepare(self, envelope: Bounds, *, crs: str | CRS = "EPSG:4326") -> RasterRequest:
+    def prepare(self, envelope: BoundingBox, *, crs: str | CRS = "EPSG:4326") -> RasterRequest:
         """Resolve bounds into enclosing whole native cells, without pixel reads.
 
         Parameters
         ----------
         envelope
-            Positive-area ``(xmin, ymin, xmax, ymax)`` bounds in ``crs``.
+            Positive-area ``(xmin, ymin, xmax, ymax)`` bounds in ``crs``, as a
+            four-element sequence or 1D NumPy array of real numbers.
             Geographic bounds must not wrap the antimeridian.
         crs
             Envelope CRS. Coordinates use x/y order. Projected bounds can avoid
