@@ -1,0 +1,118 @@
+{
+  "purpose": "Independent two-record polygon + multipart fixture; not a performance result",
+  "expected": {
+    "area": 17,
+    "parts": 2,
+    "holes": 1
+  },
+  "runs": [
+    {
+      "candidate": "shapely_direct_union",
+      "repeat": 1,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "1e9f5a28f78665cf687ef100867d169df89020e124e72f7b3fb08c6846c6ee70"
+    },
+    {
+      "candidate": "pourpoint_merge",
+      "repeat": 1,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "1e9f5a28f78665cf687ef100867d169df89020e124e72f7b3fb08c6846c6ee70"
+    },
+    {
+      "candidate": "shapely_batched_union",
+      "repeat": 1,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "62f9cfbdc811869f3e9c82aa9e12b843c7927749a654a8a124bd9c4b4a245453"
+    },
+    {
+      "candidate": "rust_sorted_serial",
+      "repeat": 1,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "ca25e2a7f478bd18044628203313b7587daeaad5434f8433a8c8157ae7630cb1"
+    },
+    {
+      "candidate": "rust_sorted_parallel",
+      "repeat": 1,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "ca25e2a7f478bd18044628203313b7587daeaad5434f8433a8c8157ae7630cb1"
+    },
+    {
+      "candidate": "rust_unsorted_parallel",
+      "repeat": 1,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "ca25e2a7f478bd18044628203313b7587daeaad5434f8433a8c8157ae7630cb1"
+    },
+    {
+      "candidate": "shapely_direct_union",
+      "repeat": 2,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "1e9f5a28f78665cf687ef100867d169df89020e124e72f7b3fb08c6846c6ee70"
+    },
+    {
+      "candidate": "pourpoint_merge",
+      "repeat": 2,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "1e9f5a28f78665cf687ef100867d169df89020e124e72f7b3fb08c6846c6ee70"
+    },
+    {
+      "candidate": "shapely_batched_union",
+      "repeat": 2,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "62f9cfbdc811869f3e9c82aa9e12b843c7927749a654a8a124bd9c4b4a245453"
+    },
+    {
+      "candidate": "rust_sorted_serial",
+      "repeat": 2,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "ca25e2a7f478bd18044628203313b7587daeaad5434f8433a8c8157ae7630cb1"
+    },
+    {
+      "candidate": "rust_sorted_parallel",
+      "repeat": 2,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "ca25e2a7f478bd18044628203313b7587daeaad5434f8433a8c8157ae7630cb1"
+    },
+    {
+      "candidate": "rust_unsorted_parallel",
+      "repeat": 2,
+      "status": "success",
+      "valid": true,
+      "agreement_status": "equal",
+      "input_sha256": "68bd6dc12a27f166bc624ad585fb895df897b0f17d3981c8929c370464da84da",
+      "output_sha256": "ca25e2a7f478bd18044628203313b7587daeaad5434f8433a8c8157ae7630cb1"
+    }
+  ]
+}
