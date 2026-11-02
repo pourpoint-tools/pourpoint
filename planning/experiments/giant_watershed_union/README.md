@@ -60,7 +60,9 @@ to force a candidate to pass. The precise tester ordering/script is unknown.
 - Exact GEOS `equals` checks topology without precision grids, repair or tolerance.
   Disagreement records symmetric-difference area in square coordinate units (degrees²
   for this capture), not physical area. Invalid inputs/outputs, failed checks or budget
-  exhaustion preserve unknown agreement. The direct GEOS baseline is a comparison,
+  exhaustion preserve unknown agreement unless equality already completed. Completed
+  validity/diagnostics are checkpointed before equality, and equality before symmetric
+  difference, so a later timeout does not erase established evidence. The direct GEOS baseline is a comparison,
   not a correctness oracle. No area-only or approximate check establishes equivalence.
 - Rust reproduces the raw historical spatial sort/recursive pairwise algorithm, including
   leaf empty-union, holes and multipart flattening, not subsequent assembly cleanup.

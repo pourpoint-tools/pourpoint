@@ -36,10 +36,19 @@ def analyze_geometry(geom: BaseGeometry) -> dict[str, Any]:
     }
 
 
-def compare_geometries(candidate: BaseGeometry, baseline: BaseGeometry) -> dict[str, Any]:
+def compare_geometries(
+    candidate: BaseGeometry, baseline: BaseGeometry, *, checkpoint: Path | None = None
+) -> dict[str, Any]:
     """Compare candidate geometry against a baseline."""
     cand_info = analyze_geometry(candidate)
     base_info = analyze_geometry(baseline)
+    if checkpoint is not None:
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        pending = checkpoint.with_suffix(".pending")
+        pending.write_text(
+            json.dumps({"candidate": cand_info, "baseline": base_info, "agreement_status": "unknown"}, indent=2) + "\n"
+        )
+        pending.replace(checkpoint)
 
     area_diff = abs(cand_info["area"] - base_info["area"])
     relative_area_diff = area_diff / base_info["area"] if base_info["area"] > 0 else 0.0
@@ -59,6 +68,21 @@ def compare_geometries(candidate: BaseGeometry, baseline: BaseGeometry) -> dict[
     else:
         try:
             equal = bool(shapely.equals(candidate, baseline))
+            if checkpoint is not None:
+                pending = checkpoint.with_suffix(".pending")
+                pending.write_text(
+                    json.dumps(
+                        {
+                            "candidate": cand_info,
+                            "baseline": base_info,
+                            "topologically_equal": equal,
+                            "agreement_status": "equal" if equal else "different",
+                        },
+                        indent=2,
+                    )
+                    + "\n"
+                )
+                pending.replace(checkpoint)
             sym_diff_area = float(shapely.symmetric_difference(candidate, baseline).area) if not equal else 0.0
         except shapely.errors.GEOSException as exc:
             error = str(exc)
@@ -99,7 +123,7 @@ def main() -> None:
         print(f"Comparing candidate {name} from {cand_path}...")
         cand_bytes = cand_path.read_bytes()
         cand_geom = shapely.from_wkb(cand_bytes)
-        comp = compare_geometries(cand_geom, baseline_geom)
+        comp = compare_geometries(cand_geom, baseline_geom, checkpoint=args.output.parent / f"{name}.diagnostics.json")
         comparisons[name] = comp
         print(
             f"  {name}: area_diff={comp['area_diff']:.2e} (rel={comp['relative_area_diff']:.2e}), "

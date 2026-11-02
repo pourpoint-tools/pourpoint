@@ -147,6 +147,7 @@ def main() -> None:
                     record["output_sha256"] = sha256(output)
                     measurement = directory / ("rust_benchmark_results.json" if mode else f"{name}.json")
                     record["measurement"] = json.loads(measurement.read_text())
+                    record["is_valid"] = record["measurement"].get("is_valid")
                     if baseline is None and name == "shapely_direct_union":
                         baseline = output
                     if baseline is not None:
@@ -168,6 +169,14 @@ def main() -> None:
                             args.validation_seconds,
                         )
                         record["validation"] = check
+                        diagnostics_path = validation / f"{output.stem}.diagnostics.json"
+                        if diagnostics_path.exists():
+                            diagnostics = json.loads(diagnostics_path.read_text())
+                            record.update(
+                                is_valid=diagnostics["candidate"]["valid"],
+                                diagnostics=diagnostics,
+                                agreement_status=diagnostics["agreement_status"],
+                            )
                         if check["status"] == "success":
                             comparison = json.loads((validation / "comparison.json").read_text())[output.stem]
                             record.update(
