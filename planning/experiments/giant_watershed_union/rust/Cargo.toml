@@ -1,0 +1,13 @@
+[package]
+name = "giant-watershed-union-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+geo = "0.33"
+rayon = "1"
+geozero = { version = "0.14", default-features = false, features = ["with-geo", "with-wkb"] }
+byteorder = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
