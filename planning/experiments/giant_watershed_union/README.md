@@ -76,3 +76,62 @@ to force a candidate to pass. The precise tester ordering/script is unknown.
 Save source, raw records, input provenance and output checks outside the VM before
 resource deletion. Full measurements, independent review, findings returned to #195,
 and rental cleanup remain necessary before #212 can be complete.
+
+
+## Spatial grouping and source retention follow-up
+
+Experimental support for [#216](https://github.com/pourpoint-tools/pourpoint/issues/216)
+and its [vision](../../visions/2026-11-03-faster-lower-memory-watershed-union-experiment.md).
+No production behavior changes or speed/memory conclusions follow from the smoke tests.
+
+```sh
+uv run python -m planning.experiments.giant_watershed_union.bench_grouped --input /data/inputs.wkb_bin --output-dir /results/new-grouped --order bbox --batch-size 5000 --workers 2
+uv run python -m planning.experiments.giant_watershed_union.bench_python --input /data/inputs.wkb_bin --output-dir /results/new-control --candidate pourpoint_merge_release_wkb
+```
+
+`bench_grouped` compares captured `input` order, runtime `bbox` order (STR-style
+bbox-center x slices sorted by y), and `physical` order from `--physical-order FILE`.
+It uses fixed-count batches, **not actual HFX row-group boundaries**. Physical ordering
+reuses layout but does not imply balanced geometry work. Defaults are bbox order,
+5,000 records per task and one thread; these are experimental settings only.
+
+The physical-order JSON contains `input_sha256` and `ordered_ids`: every captured ID
+exactly once, in actual source physical row-group/row order. The CLI rejects a wrong
+capture hash, missing IDs or duplicates. The sidecar producer must verify addresses
+against the authoritative HFX lookup and exact selected WKB against the capture, and
+retain source feature/lookup identity and preparation costs alongside the sidecar.
+Captured extraction Parquet groups are **not** source HFX groups. No HFX metadata or
+contract is introduced here. A full-source order can be filtered to selected IDs;
+never substitute whole-group pre-unions for arbitrary selected contributions.
+
+Each worker decodes only its own batch. At most `workers` tasks are submitted in a
+wave; results are collected in group order before submitting the next wave. All
+intermediate results remain until a single final GEOS union. This simple scheduling
+can leave workers idle behind a slow task. It deliberately avoids an unbounded queue
+of decoded geometries or futures. All captured source WKB stays alive by default;
+`--release-inputs` drops consumed source WKB references and is a **kernel-only**
+lifetime experiment, not equivalent public-result retention. Keeping Python WKB is
+not an exact model of Arrow features or full delineation results. Neither release
+mode nor bounded task count imposes an RSS ceiling: individual geometries, simultaneous
+GEOS workspaces, intermediates and allocator retention can dominate memory.
+
+Bbox preparation decodes bounded batches once to compute centers, then drops those
+geometries; worker decoding is repeated and charged. `preparation_timings` is a subset
+of `grouping_seconds`. `task_timings` sums per-task decode/union elapsed times which can
+overlap: do **not** add those to wall time. `stage_timings` separates read, grouping,
+group decode/union wall, final union, validation and write. Total excludes input hashing,
+imports and external topology checks; peak RSS includes the fresh process through write.
+Record outer process wall time and keep source commit/lock, logs and physical sidecar
+alongside the JSON/WKB. New output directories prevent accidental evidence reuse.
+Use the existing `verify_outputs` command in a separate process to check validity and
+exact topology against direct GEOS. Baseline GEOS is not an independent oracle.
+
+`pourpoint_merge_release_wkb` changes only the old harness's duplicate lifetime:
+after constructing the same Arrow table and Subbasin wrappers it clears the captured
+Python WKB list, while retaining source table/features through native merge and write.
+The original `pourpoint_merge` remains unchanged. The control does not remove source
+WKB from public results and does not prove an attribution for the old measured peak.
+Run each candidate in a fresh process; preserve repeated results and failures. These
+commands do not acquire datasets, rent resources, run repetitions or claim whole-workflow
+benefit. Acquisition, source preparation, repeated open-fabric use and external checks
+must be measured separately for any end-to-end or laptop claim.
