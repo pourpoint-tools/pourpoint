@@ -33,8 +33,15 @@ and output WKB, caches, credentials and build artifacts will not be committed.
 Physical order comes from the authoritative HFX lookup, not extraction Parquet groups.
 The experiment reorders selected records into fixed-count union tasks; it does not union
 whole physical groups or add published metadata. Existing layout supports this experiment
-without an HFX contract addition. Source WKB comparisons and capture bindings must remain
-explicit in the final evidence.
+without an HFX contract addition. The JSON sidecar schema is `input_sha256` plus
+`ordered_ids`, a permutation of every captured ID sorted by source `(block, row)`.
+Grouped receipts record its SHA-256. `prepare_topology.py.txt` derives Kainji ordering;
+`acquire_tributary.py.txt` filters the same addresses to the complete tributary.
+The current [manifest](evidence/source-manifest.json) and [tributary provenance](evidence/tributary-provenance.json)
+retain authoritative data bindings. Lookup binding verification is **not** verification
+of all source geometry bytes: the later [tributary acquisition check](evidence/acquisition-check.json)
+compares every selected WKB against current records, while full Kainji retains the original
+capture's provenance limitation. Neither check reconstructs the missing historical manifest.
 
 ## Measurement scope
 
@@ -85,7 +92,11 @@ recorded source access/profile and prior full Kainji artifacts, then run with pr
 measurement assumes `/root` inputs and `/results` output on the VM. Adjust those paths
 explicitly, retain the adjusted scripts, and follow each receipt's exact command. Never
 copy credentials into a report. Inputs, physical sidecars and output WKB are retained
-outside Git; [hashes](evidence-sha256.json) bind the committed small evidence snapshots.
+outside Git; [hashes](evidence-sha256.json) bind the committed small evidence snapshots,
+including the exact preparation scripts. The machine/source record contains the measured
+commit, experiment source hashes and `uv.lock` hash; use that commit's lock with `uv sync --locked`
+before running scripts. Raw receipts retain execution paths and machine identifiers as
+captured; they are evidence, not portable path defaults.
 
 Kainji measurements, final export, cost and cleanup remain pending. Report failed or
 incomplete runs explicitly; do not infer agreement from validity or area alone.
