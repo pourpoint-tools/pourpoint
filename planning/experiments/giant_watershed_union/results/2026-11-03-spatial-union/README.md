@@ -50,12 +50,45 @@ cost, with uncontrolled OS/network caches. They do not establish same-open-fabri
 union or complete delineation speedups. Report those limits rather than hiding unmeasured
 work behind isolated union improvements.
 
-## Results
+## Results so far: complete tributary
 
-Pending final exported receipts. Report each basin and repetition separately before any
-summary, including failed or incomplete runs. Distinguish sampled single-run candidates
-from repeated comparisons. Preserve exact agreement status rather than inferring it from
-successful execution, individual validity or area.
+Receipt-derived read-through-write times and fresh-process peak RSS (GiB):
+
+| Candidate | Repeat 1 seconds | Repeat 2 seconds | Peak GiB, repeats 1 / 2 |
+|---|---:|---:|---:|
+| Direct GEOS | 79.62 | 80.89 | 1.273 / 1.264 |
+| Input-order serial | 84.38 | not repeated | 1.104 / — |
+| Bbox-order serial | 80.86 | not repeated | 1.009 / — |
+| Physical-order serial | 77.12 | 76.63 | 0.945 / 0.945 |
+| Physical-order two threads | 42.27 | 42.86 | 1.303 / 1.303 |
+
+All outputs are valid. Every compared result agrees exactly with repeat-1 direct GEOS;
+that first direct result is the comparison baseline, not independently validated truth.
+Repeat 1 ran direct, input-serial, physical-serial, bbox-serial, physical-threads2;
+repeat 2 reversed the retained comparison: physical-threads2, physical-serial, direct.
+Serial differences are small; two repeats do not establish a precise small speedup.
+These are not Kainji or whole-delineation conclusions.
+
+[Raw receipts](evidence/results/tributary/) preserve timings, commands, logs and separate
+validation. [Machine/source provenance](evidence/machine-source-provenance.txt) records
+32 GB RAM, no swap, Python 3.13.18, Shapely 2.2.0 and GEOS 3.14.1 on the dedicated VM.
+The measured source is `d395ca9784bc7fc4f7485af4dfa0b89d4bd2ce2e`.
+[Acquisition checks](evidence/acquisition-check.json) took 25.81 seconds with a fresh
+persistent range cache and 3.53 seconds after reopening with that cache on the local Mac;
+all 19,527 selected WKB values matched current source records. These times cannot be
+added to VM union times. They do not repair the missing original acquisition manifest.
+
+[Exact script snapshots](scripts/) are retained as text evidence, not a maintained API.
+To reproduce, copy them as `.py` files into a separate artifact directory, supply the
+recorded source access/profile and prior full Kainji artifacts, then run with project
+`uv run python`. Preparation assumes the original sibling artifact directory layout;
+measurement assumes `/root` inputs and `/results` output on the VM. Adjust those paths
+explicitly, retain the adjusted scripts, and follow each receipt's exact command. Never
+copy credentials into a report. Inputs, physical sidecars and output WKB are retained
+outside Git; [hashes](evidence-sha256.json) bind the committed small evidence snapshots.
+
+Kainji measurements, final export, cost and cleanup remain pending. Report failed or
+incomplete runs explicitly; do not infer agreement from validity or area alone.
 
 ## Laptop implications and recommendations
 

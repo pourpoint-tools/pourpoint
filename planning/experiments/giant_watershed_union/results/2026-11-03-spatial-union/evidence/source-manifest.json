@@ -1,0 +1,293 @@
+{
+  "format_version": "0.4.0",
+  "fabric_name": "tdx",
+  "fabric_version": "NGA-TDX-Hydro-20230126",
+  "crs": "EPSG:4326",
+  "has_up_area": false,
+  "topology": "tree",
+  "bbox": [
+    -179.9986114501953,
+    -55.8865852355957,
+    179.99732971191406,
+    83.65983581542969
+  ],
+  "unit_count": 16864998,
+  "created_at": "2026-10-27T04:02:06.807721+00:00",
+  "adapter_version": "tdx-original-2",
+  "region": "1020000010,1020011530,1020018110,1020021940,1020027430,1020034170,1020035180,1020040190,2020000010,2020003440,2020018240,2020024230,2020033490,2020041390,2020057170,2020065840,2020071190,3020000010,3020003790,3020005240,3020008670,3020009320,3020024310,4020000010,4020006940,4020015090,4020024190,4020034510,4020050210,4020050220,4020050290,4020050470,5020000010,5020015660,5020037270,5020049720,5020054880,5020055870,5020082270,6020000010,6020006540,6020008320,6020014330,6020017370,6020021870,6020029280,7020000010,7020014250,7020021430,7020024600,7020038340,7020046750,7020047840,7020065090,8020000010,8020008900,8020010700,8020020760,8020022890,8020032840,8020044560,9020000010",
+  "auxiliary": [],
+  "catchment_connectivity": [
+    {
+      "level": 0,
+      "status": "not_supplied"
+    }
+  ],
+  "source_domain_metadata": {
+    "rivers": {
+      "topology": "tree"
+    }
+  },
+  "categorical_columns": [
+    {
+      "artifact": "rivers.parquet",
+      "column": "local_catchment_coverage",
+      "physical_type": "string",
+      "codes": [
+        {
+          "code": "supplied",
+          "meaning": "Polygon source supplied; local associations exhaustively checked"
+        },
+        {
+          "code": "unavailable",
+          "meaning": "Polygon source unavailable; local associations unknown"
+        }
+      ],
+      "null_meaning": "not permitted"
+    }
+  ],
+  "representation": "spatial-geoparquet-adjacency",
+  "representation_version": 1,
+  "families": {
+    "catchments": {
+      "data": "catchments.parquet",
+      "data_sha256": "946fbfcac288e8b4a718bbace269f79c106909de73f3341efc90fa2bcfd922ef",
+      "lookup": "catchments-lookup.arrow",
+      "directory": "catchments-lookup-directory.json",
+      "count": 16864998,
+      "source_artifact": "catchments.arrow",
+      "rows": 8192,
+      "budget": 8388608,
+      "ordering": "level, 16-bit longitude/latitude Morton center, id",
+      "index_batch_rows": 65536,
+      "source_batch_reads": 922471,
+      "source_decoded_bytes": 7471147677899,
+      "source_logical_bytes": 286594375794,
+      "source_decode_amplification": 26.06871700535099
+    },
+    "rivers": {
+      "data": "rivers.parquet",
+      "data_sha256": "65429544aced9d71f05c9f71cad6001103c652f2486ffa12d34ac0b6cc98f11b",
+      "lookup": "rivers-lookup.arrow",
+      "directory": "rivers-lookup-directory.json",
+      "count": 15940505,
+      "source_artifact": "rivers.arrow",
+      "rows": 8192,
+      "budget": 8388608,
+      "ordering": "level, 16-bit longitude/latitude Morton center, id",
+      "index_batch_rows": 65536,
+      "source_batch_reads": 110523,
+      "source_decoded_bytes": 719095633725,
+      "source_logical_bytes": 73292001643,
+      "source_decode_amplification": 9.81137938117262
+    }
+  },
+  "relationships": {
+    "catchments": {
+      "data": "catchments-relationships.arrow",
+      "directory": "catchments-relationships-directory.json",
+      "count": 16864998,
+      "batch_rows": 8192,
+      "columns": {
+        "local_river_ids": {
+          "source_domain": "rivers",
+          "target_domain": "rivers",
+          "source_artifact": "local-associations.parquet",
+          "source_column": "catchment_id",
+          "key_column": "river_id",
+          "direction": "reverse"
+        }
+      },
+      "feature_artifacts": {
+        "catchments": {
+          "data": "catchments.parquet",
+          "data_sha256": "946fbfcac288e8b4a718bbace269f79c106909de73f3341efc90fa2bcfd922ef"
+        },
+        "rivers": {
+          "data": "rivers.parquet",
+          "data_sha256": "65429544aced9d71f05c9f71cad6001103c652f2486ffa12d34ac0b6cc98f11b"
+        }
+      },
+      "source_artifacts": [
+        "catchments.arrow",
+        "local-associations.parquet",
+        "manifest.json",
+        "rivers.arrow"
+      ],
+      "connectivity": [
+        {
+          "level": 0,
+          "status": "not_supplied"
+        }
+      ],
+      "connectivity_source": "manifest.json"
+    },
+    "rivers": {
+      "data": "rivers-relationships.arrow",
+      "directory": "rivers-relationships-directory.json",
+      "count": 15940505,
+      "batch_rows": 8192,
+      "columns": {
+        "upstream_ids": {
+          "source_domain": "rivers",
+          "target_domain": "rivers",
+          "source_artifact": "river-graph.parquet",
+          "source_column": "upstream_ids",
+          "direction": "forward"
+        },
+        "downstream_ids": {
+          "source_domain": "rivers",
+          "target_domain": "rivers",
+          "source_artifact": "river-graph.parquet",
+          "source_column": "upstream_ids",
+          "direction": "reverse"
+        },
+        "local_catchment_ids": {
+          "source_domain": "rivers",
+          "target_domain": "catchments",
+          "source_artifact": "local-associations.parquet",
+          "source_column": "catchment_id",
+          "key_column": "river_id",
+          "direction": "forward"
+        }
+      },
+      "feature_artifacts": {
+        "catchments": {
+          "data": "catchments.parquet",
+          "data_sha256": "946fbfcac288e8b4a718bbace269f79c106909de73f3341efc90fa2bcfd922ef"
+        },
+        "rivers": {
+          "data": "rivers.parquet",
+          "data_sha256": "65429544aced9d71f05c9f71cad6001103c652f2486ffa12d34ac0b6cc98f11b"
+        }
+      },
+      "source_artifacts": [
+        "catchments.arrow",
+        "local-associations.parquet",
+        "river-graph.parquet",
+        "rivers.arrow"
+      ]
+    }
+  },
+  "source_manifest": "source-manifest.json",
+  "input_manifest_sha256": "267cc61659b6c8bf441b6ad013a5fa3c940b26dc2b3dd5afe2db55b397901558",
+  "addressing": {
+    "block": "zero-based Parquet row group",
+    "row": "zero-based row within group"
+  },
+  "artifacts": {
+    "NOTICE": {
+      "size_bytes": 839,
+      "sha256": "72ee7e285ac6879446deb57e23c8bcb3f179326dc034bacccb6d44ec39601e8d",
+      "head_sha256": "72ee7e285ac6879446deb57e23c8bcb3f179326dc034bacccb6d44ec39601e8d",
+      "tail_sha256": "72ee7e285ac6879446deb57e23c8bcb3f179326dc034bacccb6d44ec39601e8d"
+    },
+    "catchments-lookup-directory.json": {
+      "size_bytes": 17892,
+      "sha256": "e7d373f01153be7628e2e9d13f1e1a4d42ec6dbd7052bd486737448de5afdae1",
+      "head_sha256": "e7d373f01153be7628e2e9d13f1e1a4d42ec6dbd7052bd486737448de5afdae1",
+      "tail_sha256": "e7d373f01153be7628e2e9d13f1e1a4d42ec6dbd7052bd486737448de5afdae1"
+    },
+    "catchments-lookup.arrow": {
+      "size_bytes": 269908834,
+      "sha256": "24d6933e1412326998b43366be1baa0de95eea63daf4a8d9d5c9dbde5276963d",
+      "head_sha256": "1ff48d95ba3589ce230bf8d95aec4e036f615eb9d814850d1703efea33c9d8da",
+      "tail_sha256": "510b387a2178c97fc2ea002d86142522aeff01e609025271f9cb2d912734368c"
+    },
+    "catchments-relationships-directory.json": {
+      "size_bytes": 142390,
+      "sha256": "4975addbc5ba302f9e4dee9b3316c5043411a02eb86eebad85f93245c56b82c3",
+      "head_sha256": "c54ce480911ca4dd821daec72f5bc8179574515b06e5553d49ba9155c931e4e3",
+      "tail_sha256": "0117e5702731ffd06c1f8710007e2d18e5144d101681d11e1656729dc728d48b"
+    },
+    "catchments-relationships.arrow": {
+      "size_bytes": 337860554,
+      "sha256": "c004e9efc4c667c4538d12924e29c713c63290c793240f223441eebc41c684d8",
+      "head_sha256": "f0511d9fab76b714b79fd75d206f9821cc9d018e73714dd905c2dc6be2aa7ac7",
+      "tail_sha256": "2fe4458b49937c407fcf676f0ef750aa059818445594d7160352862feb734d8d"
+    },
+    "catchments.parquet": {
+      "size_bytes": 60004585517,
+      "sha256": "946fbfcac288e8b4a718bbace269f79c106909de73f3341efc90fa2bcfd922ef",
+      "head_sha256": "d6a385b86025b8137a94142bcedb5ee069f0e9eff86f4ae0144977b8da407e5e",
+      "tail_sha256": "8d663387e7f4d691889a92ce82280e7c1901ab54970a5acca27b4519ed65ac93"
+    },
+    "original-inventory.json": {
+      "size_bytes": 26473,
+      "sha256": "efabb7d2491130c5b1d47290115094b306ce7d362ff5da1f0ee58f8741b4fe50",
+      "head_sha256": "efabb7d2491130c5b1d47290115094b306ce7d362ff5da1f0ee58f8741b4fe50",
+      "tail_sha256": "efabb7d2491130c5b1d47290115094b306ce7d362ff5da1f0ee58f8741b4fe50"
+    },
+    "provenance/original-acquisition-records.json": {
+      "size_bytes": 26979,
+      "sha256": "fa4609ce369bf3c1cb95a1e4ff7e40200f6650ba655c5244eb714d515c607ce3",
+      "head_sha256": "fa4609ce369bf3c1cb95a1e4ff7e40200f6650ba655c5244eb714d515c607ce3",
+      "tail_sha256": "fa4609ce369bf3c1cb95a1e4ff7e40200f6650ba655c5244eb714d515c607ce3"
+    },
+    "provenance/raw-LICENSE.txt": {
+      "size_bytes": 1667,
+      "sha256": "70fd3607a4c165916c5672c63109aa80369ddb2dc72d6a8ce821583d841f2f6a",
+      "head_sha256": "70fd3607a4c165916c5672c63109aa80369ddb2dc72d6a8ce821583d841f2f6a",
+      "tail_sha256": "70fd3607a4c165916c5672c63109aa80369ddb2dc72d6a8ce821583d841f2f6a"
+    },
+    "provenance/raw-NOTICE.txt": {
+      "size_bytes": 1038,
+      "sha256": "3e5114b270eb301200a66a8522173cc6088f8395814dee008f4b09e893baa671",
+      "head_sha256": "3e5114b270eb301200a66a8522173cc6088f8395814dee008f4b09e893baa671",
+      "tail_sha256": "3e5114b270eb301200a66a8522173cc6088f8395814dee008f4b09e893baa671"
+    },
+    "provenance/raw-archive-inventory-124.json": {
+      "size_bytes": 90175,
+      "sha256": "1a99d9a39eb76e98154c36376a46499330344efb489fcd5053f099c9a0e1c32f",
+      "head_sha256": "7e3b414c6b5c419a737fc6c18cc779c09c7c31374265d84f16369ebdd5299bd9",
+      "tail_sha256": "010960598c9e9a332a3017f1beeb19c0ad56dfddc701580d8254c95491fac47a"
+    },
+    "provenance/raw-archive-verification.json": {
+      "size_bytes": 1022,
+      "sha256": "4d1a822fa47d4885ec4c257e9d6c4cac4637fa31b92d0f361051858683f2258c",
+      "head_sha256": "4d1a822fa47d4885ec4c257e9d6c4cac4637fa31b92d0f361051858683f2258c",
+      "tail_sha256": "4d1a822fa47d4885ec4c257e9d6c4cac4637fa31b92d0f361051858683f2258c"
+    },
+    "rivers-lookup-directory.json": {
+      "size_bytes": 16898,
+      "sha256": "710670e90309630bb7c3b97d8de01ca2bbfc3c0cce24c3659411bb28098cf3b1",
+      "head_sha256": "710670e90309630bb7c3b97d8de01ca2bbfc3c0cce24c3659411bb28098cf3b1",
+      "tail_sha256": "710670e90309630bb7c3b97d8de01ca2bbfc3c0cce24c3659411bb28098cf3b1"
+    },
+    "rivers-lookup.arrow": {
+      "size_bytes": 255113258,
+      "sha256": "52e441cf9d354814509c2975274b8454efbe560a3c5a0f9465cb749560d0c5fa",
+      "head_sha256": "2ada49e7848c491c5b3effcfbfddcc59114910ce88a24f089420e5259df53bf0",
+      "tail_sha256": "48f9ee0e818710d1b9e1c8d04258e59745656f7aeb44fa3d1a3587aec4068e0a"
+    },
+    "rivers-relationships-directory.json": {
+      "size_bytes": 134367,
+      "sha256": "be3c060948514a71cf5c2656cc9ad7feb4ac20a27eadfe3b44afb5aec5c19c0d",
+      "head_sha256": "c54ce480911ca4dd821daec72f5bc8179574515b06e5553d49ba9155c931e4e3",
+      "tail_sha256": "b8ededd4f7221ec2d352851652f34fe9636baddfd835cc6aa6280ebc9e3f00d9"
+    },
+    "rivers-relationships.arrow": {
+      "size_bytes": 706984250,
+      "sha256": "fdc6f19a5e3819ed9e770bef4607442a30d6b6887644c090e8ce367e4925ab6a",
+      "head_sha256": "5a577a0f2153a956e16beb1a21fda3e063b21c1e776af6a4355902f918b3041e",
+      "tail_sha256": "de734e964952e75311d44377c9de76daf21fd36f9336b2e2ba642c5fdfb6b1d9"
+    },
+    "rivers.parquet": {
+      "size_bytes": 15940133565,
+      "sha256": "65429544aced9d71f05c9f71cad6001103c652f2486ffa12d34ac0b6cc98f11b",
+      "head_sha256": "e80e7dec0e3f5b825dc768134abbe3e50c82ddfbd0d42075cac2670011a3bb3b",
+      "tail_sha256": "acb533e8ae5601365b55e55a3481c524dd172c90a657dc4f0b5b593b852bee54"
+    },
+    "source-manifest.json": {
+      "size_bytes": 7584,
+      "sha256": "267cc61659b6c8bf441b6ad013a5fa3c940b26dc2b3dd5afe2db55b397901558",
+      "head_sha256": "267cc61659b6c8bf441b6ad013a5fa3c940b26dc2b3dd5afe2db55b397901558",
+      "tail_sha256": "267cc61659b6c8bf441b6ad013a5fa3c940b26dc2b3dd5afe2db55b397901558"
+    },
+    "source-metadata.json": {
+      "size_bytes": 339136,
+      "sha256": "566649cde6ad3f5c1a4f93f675b91892af485b70c9bc4bf5a735f8b09ab97721",
+      "head_sha256": "fa0fc8ff398bfead394ae000705cb68eb98d657ec5233c3aaf602989abfbef0a",
+      "tail_sha256": "01d625407f4026e7b9ec70127181e113faa2b7c695fa050a485192eee0b0b7bf"
+    }
+  }
+}

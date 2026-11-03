@@ -1,0 +1,46 @@
+{
+  "status": "success",
+  "python": "3.13.18 (main, Oct 26 2026, 14:08:20) [Clang 23.1.3 ]",
+  "shapely": "2.2.0",
+  "geos": "3.14.1",
+  "machine": {
+    "system": "Linux",
+    "node": "pourpoint-union-memory",
+    "release": "6.8.0-138-generic",
+    "version": "#138-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 31 22:41:49 UTC 2026",
+    "machine": "x86_64",
+    "processor": "x86_64"
+  },
+  "input_sha256": "836c78623aab91453164d27c157948d4f470946ba988ac8a920773476a7723e8",
+  "settings": {
+    "input": "/root/tributary_inputs.wkb_bin",
+    "output_dir": "/results/tributary/repeat-2/physical-serial/output",
+    "order": "physical",
+    "physical_order": "/root/tributary-physical-order.json",
+    "batch_size": 5000,
+    "workers": 1,
+    "release_inputs": false
+  },
+  "memory_scope": "fresh process high-water through output write, includes hashing; excludes external topology check",
+  "timing_scope": "input read through output write; excludes input hashing, imports and external topology check",
+  "source_sha256": "2c00f08cee8c6e62105f08e33a036b5de52568a625d6d2261071919d8e0a2021",
+  "physical_order_sha256": "70bfd3da4302d6ce301af484a161ffa6716a24af0dd976b8883ae55ccee41691",
+  "preparation_timings": {},
+  "is_valid": true,
+  "area": 15.22980392592355,
+  "task_timings": {
+    "decode_task_seconds_sum": 0.3901300339999807,
+    "union_task_seconds_sum": 73.37833265200004
+  },
+  "input_count": 19527,
+  "stage_timings": {
+    "group_union_seconds": 73.78161316500007,
+    "final_union_seconds": 2.499985068000001,
+    "validation_seconds": 0.08971955399999842,
+    "write_seconds": 0.00836910500004251,
+    "read_seconds": 0.23331083699997635,
+    "grouping_seconds": 0.012820054000030723
+  },
+  "total_seconds": 76.625990334,
+  "peak_rss_mb": 967.5390625
+}

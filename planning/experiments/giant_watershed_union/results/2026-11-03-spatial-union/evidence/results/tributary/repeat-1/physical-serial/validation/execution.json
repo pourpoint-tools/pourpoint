@@ -1,0 +1,17 @@
+{
+  "candidate": "physical-serial",
+  "command": [
+    "/root/pourpoint/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.verify_outputs",
+    "--baseline",
+    "/results/tributary/repeat-1/shapely_direct_union/output/shapely_direct_union.wkb",
+    "--candidates",
+    "/results/tributary/repeat-1/physical-serial/output/grouped.wkb",
+    "--output",
+    "/results/tributary/repeat-1/physical-serial/validation/comparison.json"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 0.9687874259999489
+}

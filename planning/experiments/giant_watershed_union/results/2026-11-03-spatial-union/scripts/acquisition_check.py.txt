@@ -1,0 +1,50 @@
+"""Bounded current-reader acquisition and exact original WKB comparison, no union."""
+from __future__ import annotations
+import configparser
+import hashlib
+import json
+import platform
+import struct
+import time
+from pathlib import Path
+from pourpoint import HydroFabric
+ROOT=Path(__file__).parent
+cfg=configparser.ConfigParser();cfg.read(Path.home()/".aws/credentials");p=cfg["hetzner-pourpoint"]
+options={"aws_access_key_id":p["aws_access_key_id"],"aws_secret_access_key":p["aws_secret_access_key"],"aws_endpoint":"https://fsn1.your-objectstorage.com","aws_region":"fsn1"}
+provenance=json.loads((ROOT/"tributary-provenance.json").read_text())
+positions:dict[int,tuple[int,int]]={}
+with (ROOT/"tributary_inputs.wkb_bin").open("rb") as stream:
+    while header:=stream.read(12):
+        cid,size=struct.unpack("<QI",header);positions[cid]=(stream.tell(),size);stream.seek(size,1)
+results=[]
+for repeat in (1,2):
+    begin=time.perf_counter();phases={}
+    with HydroFabric(provenance["source_url"],storage_options=options,cache=True,cache_dir=ROOT/"acquisition-cache") as fabric:
+        phases["open_seconds"]=time.perf_counter()-begin
+        t=time.perf_counter();rivers=fabric.traverse("rivers",[provenance["seed_river_id"]],relationship="upstream_ids");phases["traversal_seconds"]=time.perf_counter()-t
+        t=time.perf_counter();selected=[];seen=set()
+        for start in range(0,len(rivers),8192):
+            table=fabric.relationships("rivers",rivers[start:start+8192],columns=["local_catchment_ids"])
+            for row in table["local_catchment_ids"].to_pylist():
+                for cid in row or []:
+                    if cid not in seen:seen.add(cid);selected.append(cid)
+        phases["associations_seconds"]=time.perf_counter()-t
+        assert seen==set(positions)
+        current_manifest=dict(fabric.manifest.declarations)
+        assert current_manifest==json.loads((ROOT/"source-manifest.json").read_text())
+        read_seconds=validation_seconds=0.;verified=0
+        with (ROOT/"tributary_inputs.wkb_bin").open("rb") as capture:
+            for start in range(0,len(selected),1024):
+                batch=selected[start:start+1024];t=time.perf_counter()
+                records=fabric.records("catchments",batch,columns=["id","geometry"])
+                read_seconds+=time.perf_counter()-t;t=time.perf_counter()
+                assert records["id"].to_pylist()==batch
+                for cid,value in zip(batch,records["geometry"],strict=True):
+                    offset,size=positions[cid];capture.seek(offset)
+                    assert value.as_py()==capture.read(size),f"WKB disagreement {cid}"
+                    verified+=1
+                validation_seconds+=time.perf_counter()-t
+                del records
+        phases["records_seconds"]=read_seconds;phases["exact_wkb_comparison_seconds"]=validation_seconds
+    result={"repeat":repeat,"cache_state":"fresh persistent range cache" if repeat==1 else "reopened reader same persistent range cache","phase_seconds":phases,"total_seconds":time.perf_counter()-begin,"verified_geometry_count":verified,"input_sha256":provenance["input_sha256"],"machine":platform.uname()._asdict(),"source_url":provenance["source_url"],"manifest_sha256":provenance["manifest_sha256"],"limitations":"Local acquisition, VM union measured separately; not an end-to-end wall time. OS/network caches uncontrolled. No union or geometry decode. Original manifest identity remains unknown."}
+    results.append(result);(ROOT/"acquisition-check.json").write_text(json.dumps(results,indent=2)+"\n");print(json.dumps(result),flush=True)
