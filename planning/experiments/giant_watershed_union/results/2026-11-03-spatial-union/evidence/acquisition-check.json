@@ -1,0 +1,52 @@
+[
+  {
+    "repeat": 1,
+    "cache_state": "fresh persistent range cache",
+    "phase_seconds": {
+      "open_seconds": 0.21362687507644296,
+      "traversal_seconds": 5.7226104161236435,
+      "associations_seconds": 1.5731920830439776,
+      "records_seconds": 18.16866545751691,
+      "exact_wkb_comparison_seconds": 0.08621008438058197
+    },
+    "total_seconds": 25.8076794159133,
+    "verified_geometry_count": 19527,
+    "input_sha256": "836c78623aab91453164d27c157948d4f470946ba988ac8a920773476a7723e8",
+    "machine": {
+      "system": "Darwin",
+      "node": "nicolass-macbook-pro-2.home",
+      "release": "24.6.0",
+      "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+      "machine": "arm64",
+      "processor": "arm"
+    },
+    "source_url": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+    "manifest_sha256": "af831fec8d1469e304d21ff9271faead0035bb6f0ce8bf1e007c03c022a13991",
+    "limitations": "Local acquisition, VM union measured separately; not an end-to-end wall time. OS/network caches uncontrolled. No union or geometry decode. Original manifest identity remains unknown."
+  },
+  {
+    "repeat": 2,
+    "cache_state": "reopened reader same persistent range cache",
+    "phase_seconds": {
+      "open_seconds": 0.0006717080250382423,
+      "traversal_seconds": 0.5822365002240986,
+      "associations_seconds": 0.03920954209752381,
+      "records_seconds": 2.798098543426022,
+      "exact_wkb_comparison_seconds": 0.0732195433229208
+    },
+    "total_seconds": 3.533858000067994,
+    "verified_geometry_count": 19527,
+    "input_sha256": "836c78623aab91453164d27c157948d4f470946ba988ac8a920773476a7723e8",
+    "machine": {
+      "system": "Darwin",
+      "node": "nicolass-macbook-pro-2.home",
+      "release": "24.6.0",
+      "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+      "machine": "arm64",
+      "processor": "arm"
+    },
+    "source_url": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+    "manifest_sha256": "af831fec8d1469e304d21ff9271faead0035bb6f0ce8bf1e007c03c022a13991",
+    "limitations": "Local acquisition, VM union measured separately; not an end-to-end wall time. OS/network caches uncontrolled. No union or geometry decode. Original manifest identity remains unknown."
+  }
+]

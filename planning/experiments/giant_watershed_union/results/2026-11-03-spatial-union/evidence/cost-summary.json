@@ -1,0 +1,14 @@
+{
+  "currency": "EUR",
+  "elapsed_hours_upper_bound_to_absence_verification": 2.3095733919444448,
+  "reserved_started_hours": 3,
+  "server_hourly_gross": 0.2398739,
+  "ipv4_hourly_gross": 0.0008648,
+  "reserved_rental_gross": 0.7222161,
+  "cap": 10,
+  "server_id": 174295646,
+  "created_utc": "2026-11-03T10:31:19Z",
+  "verified_absent_utc": "2026-11-03T12:49:53.464211+00:00",
+  "backups_snapshots_volumes_created": false,
+  "note": "Estimate/reservation not invoice. Includes IPv4; IPv6 free. Small source object request costs unquantified. Only own server/IPs deleted; unrelated server preserved."
+}

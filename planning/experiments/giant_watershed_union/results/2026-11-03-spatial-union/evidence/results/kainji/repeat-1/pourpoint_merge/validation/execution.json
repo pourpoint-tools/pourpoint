@@ -1,0 +1,17 @@
+{
+  "candidate": "pourpoint_merge",
+  "command": [
+    "/root/pourpoint/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.verify_outputs",
+    "--baseline",
+    "/results/kainji/repeat-1/shapely_direct_union/output/shapely_direct_union.wkb",
+    "--candidates",
+    "/results/kainji/repeat-1/pourpoint_merge/output/pourpoint_merge.wkb",
+    "--output",
+    "/results/kainji/repeat-1/pourpoint_merge/validation/comparison.json"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 8.387860623000051
+}

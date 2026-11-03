@@ -1,0 +1,56 @@
+"""Read-only discovery of complete Kainji tributaries and source physical lookup."""
+from __future__ import annotations
+import configparser
+import hashlib
+import json
+from pathlib import Path
+import pyarrow as pa
+import pyarrow.parquet as pq
+from pourpoint import HydroFabric
+from pourpoint.vectors import _IndexedIPC
+ROOT=Path(__file__).parent
+OLD=ROOT.parent/"giant-union-resume-20261102"
+cfg=configparser.ConfigParser(); cfg.read(Path.home()/".aws/credentials")
+p=cfg["hetzner-pourpoint"]
+options={"aws_access_key_id":p["aws_access_key_id"],"aws_secret_access_key":p["aws_secret_access_key"],"aws_endpoint":"https://fsn1.your-objectstorage.com","aws_region":"fsn1"}
+source=json.loads((OLD/"kainji_data_full/kainji_provenance.json").read_text())["source_url"]
+ids=json.loads((OLD/"input-river-ids.json").read_text())
+with HydroFabric(source,storage_options=options,cache=True,cache_dir=ROOT/"discovery-cache") as fabric:
+    tables=[]
+    for start in range(0,len(ids),8192):
+        batch=ids[start:start+8192]
+        table=fabric.relationships("rivers",batch,columns=["upstream_ids"])
+        tables.append(table.append_column("id",pa.array(batch)))
+    topology=pa.concat_tables(tables)
+    pq.write_table(topology,ROOT/"kainji-river-topology.parquet")
+    upstream=dict(zip(ids,topology["upstream_ids"].to_pylist(),strict=True))
+    counts:dict[int,int]={}
+    def count(seed:int)->int:
+        stack=[(seed,False)]
+        while stack:
+            node,seen=stack.pop()
+            if node in counts: continue
+            children=upstream[node]
+            if seen: counts[node]=1+sum(counts[c] for c in children)
+            else:
+                stack.append((node,True))
+                stack.extend((c,False) for c in children if c not in counts)
+        return counts[seed]
+    count(1681474)
+    candidates=sorted(((abs(n-20000),key,n) for key,n in counts.items() if 10000<=n<=30000))[:10]
+    (ROOT/"tributary-candidates.json").write_text(json.dumps(candidates,indent=2)+"\n")
+    print("Tributary candidates (distance to 20k, seed, upstream count):",candidates,flush=True)
+    captured=pq.read_table(OLD/"kainji_data_full/kainji_catchments.parquet",columns=["id"])["id"].to_pylist()
+    family=fabric.manifest.families["catchments"]
+    lookup=_IndexedIPC(fabric._source,fabric.manifest,family.lookup,family.directory,family.count)
+    assert lookup.schema.metadata[b"hfx:data_sha256"].decode()==family.data_sha256
+    addresses=lookup.read(captured)
+    assert addresses["id"].to_pylist()==captured
+    assert all(column.null_count==0 for column in addresses.columns)
+    pq.write_table(addresses,ROOT/"kainji-physical-addresses.parquet")
+    ordered=addresses.sort_by([("block","ascending"),("row","ascending")])["id"].to_pylist()
+    manifest=dict(fabric.manifest.declarations)
+    (ROOT/"source-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
+    result={"input_sha256":"70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae","ordered_ids":ordered,"source_url":source,"catchments_data_sha256":family.data_sha256,"manifest_sha256":hashlib.sha256((ROOT/"source-manifest.json").read_bytes()).hexdigest(),"mapping":"source lookup block,row; current publication binding; original acquisition manifest unavailable"}
+    (ROOT/"kainji-physical-order.json").write_text(json.dumps(result)+"\n")
+print("Preparation complete",flush=True)

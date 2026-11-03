@@ -1,0 +1,7 @@
+{
+  "versions": {
+    "measure.py": "30f5b01f71b4921337c67c1f5f7eac9ba5dddca191ee0d490196e78372f40aad",
+    "measure-initial.py": "59c585426700b5acbba8673a957374cc72756a15a8427364354c70f05d1a8612"
+  },
+  "boundary": "Initial driver used through Kainji native merge first repeat (already running at update); later invocations add GNU time -v to external validation only."
+}

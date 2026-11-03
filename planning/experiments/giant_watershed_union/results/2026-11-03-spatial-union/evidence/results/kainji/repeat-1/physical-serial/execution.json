@@ -1,0 +1,28 @@
+{
+  "input_sha256": "70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae",
+  "basin": "kainji",
+  "repeat": "1",
+  "name": "physical-serial",
+  "command": [
+    "/usr/bin/time",
+    "-v",
+    "/root/pourpoint/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.bench_grouped",
+    "--input",
+    "/root/kainji_inputs.wkb_bin",
+    "--output-dir",
+    "/results/kainji/repeat-1/physical-serial/output",
+    "--order",
+    "physical",
+    "--workers",
+    "1",
+    "--batch-size",
+    "5000",
+    "--physical-order",
+    "/root/kainji-physical-order.json"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 705.6903061600005
+}

@@ -1,0 +1,30 @@
+{
+  "candidate": {
+    "valid": true,
+    "area": 15.229803925923882,
+    "bounds": [
+      3.736166666664964,
+      11.214944444445456,
+      9.436166666664509,
+      16.15038888888951
+    ],
+    "part_count": 36,
+    "hole_count": 41,
+    "vertex_count": 239432
+  },
+  "baseline": {
+    "valid": true,
+    "area": 15.229803925923882,
+    "bounds": [
+      3.736166666664964,
+      11.214944444445456,
+      9.436166666664509,
+      16.15038888888951
+    ],
+    "part_count": 36,
+    "hole_count": 41,
+    "vertex_count": 239432
+  },
+  "topologically_equal": true,
+  "agreement_status": "equal"
+}

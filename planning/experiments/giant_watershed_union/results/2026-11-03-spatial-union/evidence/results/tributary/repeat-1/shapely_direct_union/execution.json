@@ -1,0 +1,22 @@
+{
+  "input_sha256": "836c78623aab91453164d27c157948d4f470946ba988ac8a920773476a7723e8",
+  "basin": "tributary",
+  "repeat": "1",
+  "name": "shapely_direct_union",
+  "command": [
+    "/usr/bin/time",
+    "-v",
+    "/root/pourpoint/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.bench_python",
+    "--input",
+    "/root/tributary_inputs.wkb_bin",
+    "--output-dir",
+    "/results/tributary/repeat-1/shapely_direct_union/output",
+    "--candidate",
+    "shapely_direct_union"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 79.884898212
+}

@@ -1,0 +1,19 @@
+{
+  "purpose": "validation-only peak RSS rerun; original candidate and validation evidence unchanged",
+  "command": [
+    "/usr/bin/time",
+    "-v",
+    "/root/pourpoint/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.verify_outputs",
+    "--baseline",
+    "/results/tributary/repeat-1/shapely_direct_union/output/shapely_direct_union.wkb",
+    "--candidates",
+    "/results/tributary/repeat-2/physical-threads2/output/grouped.wkb",
+    "--output",
+    "/results/tributary/repeat-2/physical-threads2/validation-rss-rerun/comparison.json"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 0.9683172869990813
+}

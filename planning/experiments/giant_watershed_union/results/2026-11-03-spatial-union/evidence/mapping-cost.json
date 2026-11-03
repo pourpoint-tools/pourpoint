@@ -1,0 +1,54 @@
+[
+  {
+    "basin": "kainji",
+    "repeat": 1,
+    "cache_state": "fresh persistent cache",
+    "count": 169770,
+    "open_seconds": 0.18690195796079934,
+    "lookup_initialization_seconds": 0.3674024168867618,
+    "selected_lookup_seconds": 0.9420462080743164,
+    "sort_seconds": 0.009772625053301454,
+    "total_mapping_seconds": 1.506123207975179,
+    "identity_checks": "lookup data_sha256 verified; exact saved permutation match",
+    "timing_scope": "Open source + selected physical mapping + sorting; excludes local input ID loading, saved mapping validation and artifact writing; local Darwin, not VM"
+  },
+  {
+    "basin": "kainji",
+    "repeat": 2,
+    "cache_state": "same persistent cache reopened",
+    "count": 169770,
+    "open_seconds": 0.0005312908906489611,
+    "lookup_initialization_seconds": 0.0009184589143842459,
+    "selected_lookup_seconds": 0.16992483311332762,
+    "sort_seconds": 0.009468874894082546,
+    "total_mapping_seconds": 0.18084345781244338,
+    "identity_checks": "lookup data_sha256 verified; exact saved permutation match",
+    "timing_scope": "Open source + selected physical mapping + sorting; excludes local input ID loading, saved mapping validation and artifact writing; local Darwin, not VM"
+  },
+  {
+    "basin": "tributary",
+    "repeat": 1,
+    "cache_state": "fresh persistent cache",
+    "count": 19527,
+    "open_seconds": 0.16037229192443192,
+    "lookup_initialization_seconds": 0.1602021250873804,
+    "selected_lookup_seconds": 0.31601420789957047,
+    "sort_seconds": 0.001690208911895752,
+    "total_mapping_seconds": 0.6382788338232785,
+    "identity_checks": "lookup data_sha256 verified; exact saved permutation match",
+    "timing_scope": "Open source + selected physical mapping + sorting; excludes local input ID loading, saved mapping validation and artifact writing; local Darwin, not VM"
+  },
+  {
+    "basin": "tributary",
+    "repeat": 2,
+    "cache_state": "same persistent cache reopened",
+    "count": 19527,
+    "open_seconds": 0.00047808396629989147,
+    "lookup_initialization_seconds": 0.0007625829894095659,
+    "selected_lookup_seconds": 0.022226542001590133,
+    "sort_seconds": 0.0012127500958740711,
+    "total_mapping_seconds": 0.02467995905317366,
+    "identity_checks": "lookup data_sha256 verified; exact saved permutation match",
+    "timing_scope": "Open source + selected physical mapping + sorting; excludes local input ID loading, saved mapping validation and artifact writing; local Darwin, not VM"
+  }
+]

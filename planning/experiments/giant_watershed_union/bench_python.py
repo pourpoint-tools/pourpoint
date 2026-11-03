@@ -57,7 +57,7 @@ def run_candidate(
     stages: dict[str, float] = {}
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
-    if candidate == "pourpoint_merge":
+    if candidate in ("pourpoint_merge", "pourpoint_merge_release_wkb"):
         if ids is None or wkb_list is None or geometries:
             raise ValueError("merge requires source IDs/WKB and no predecoded geometries")
         t = time.perf_counter()
@@ -70,6 +70,8 @@ def run_candidate(
         t = time.perf_counter()
         table = pa.table({"id": pa.array(ids, type=pa.int64()), "geometry": pa.array(wkb_list, type=pa.binary())})
         subbasins = [Subbasin(table, i) for i in range(table.num_rows)]
+        if candidate == "pourpoint_merge_release_wkb":
+            wkb_list.clear()
         stages["wrapper_seconds"] = time.perf_counter() - t
         t = time.perf_counter()
         result = merge(subbasins=subbasins)
@@ -122,7 +124,7 @@ def main() -> None:
     args = parser.parse_args()
     start = time.perf_counter()
     ids, values, read_seconds = read_wkb_bin(args.input)
-    if args.candidate == "pourpoint_merge":
+    if args.candidate in ("pourpoint_merge", "pourpoint_merge_release_wkb"):
         geometries, decode_seconds = [], 0.0
     else:
         geometries, decode_seconds = decode_geometries(values)

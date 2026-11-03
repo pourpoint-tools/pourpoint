@@ -1,0 +1,21 @@
+{
+  "input_sha256": "836c78623aab91453164d27c157948d4f470946ba988ac8a920773476a7723e8",
+  "source_url": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+  "seed_river_id": 1626052,
+  "river_count": 19529,
+  "catchment_count": 19527,
+  "all_rivers_coverage": "supplied",
+  "complete_upstream_closure": true,
+  "capture_order": "relative original Kainji capture order",
+  "source_capture_sha256": "70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae",
+  "manifest_sha256": "af831fec8d1469e304d21ff9271faead0035bb6f0ce8bf1e007c03c022a13991",
+  "catchments_data_sha256": "946fbfcac288e8b4a718bbace269f79c106909de73f3341efc90fa2bcfd922ef",
+  "geometry_policy": "unchanged original WKB; no decode or repair",
+  "limitation": "Current topology/lookup; original capture acquisition manifest unavailable. Current geometry equality not revalidated by this extraction.",
+  "phases": {
+    "traverse_seconds": 0.539934542030096,
+    "associations_seconds": 2.416135791921988,
+    "coverage_seconds": 3.105795750161633,
+    "capture_selection_seconds": 1.5358506250195205
+  }
+}

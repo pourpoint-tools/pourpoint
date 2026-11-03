@@ -1,0 +1,19 @@
+{
+  "candidate": "pourpoint_merge_release_wkb",
+  "command": [
+    "/usr/bin/time",
+    "-v",
+    "/root/pourpoint/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.verify_outputs",
+    "--baseline",
+    "/results/kainji/repeat-1/shapely_direct_union/output/shapely_direct_union.wkb",
+    "--candidates",
+    "/results/kainji/repeat-2/pourpoint_merge_release_wkb/output/pourpoint_merge_release_wkb.wkb",
+    "--output",
+    "/results/kainji/repeat-2/pourpoint_merge_release_wkb/validation/comparison.json"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 8.488064517999192
+}

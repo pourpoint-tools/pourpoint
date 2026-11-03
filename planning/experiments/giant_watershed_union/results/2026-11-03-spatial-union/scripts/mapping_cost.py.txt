@@ -1,0 +1,31 @@
+"""Measure selected physical-address lookup preparation; no geometry acquisition."""
+from __future__ import annotations
+import configparser
+import hashlib
+import json
+import time
+from pathlib import Path
+import pyarrow as pa
+import pyarrow.parquet as pq
+from pourpoint import HydroFabric
+from pourpoint.vectors import _IndexedIPC
+ROOT=Path(__file__).parent
+OLD=ROOT.parent/"giant-union-resume-20261102"
+cfg=configparser.ConfigParser();cfg.read(Path.home()/".aws/credentials");p=cfg["hetzner-pourpoint"]
+options={"aws_access_key_id":p["aws_access_key_id"],"aws_secret_access_key":p["aws_secret_access_key"],"aws_endpoint":"https://fsn1.your-objectstorage.com","aws_region":"fsn1"}
+source=json.loads((ROOT/"tributary-provenance.json").read_text())["source_url"]
+results=[]
+for basin in ["kainji","tributary"]:
+    ids=(pq.read_table(OLD/"kainji_data_full/kainji_catchments.parquet",columns=["id"])["id"].to_pylist() if basin=="kainji" else json.loads((ROOT/"tributary-selected-ids.json").read_text()))
+    for repeat in [1,2]:
+        start=time.perf_counter()
+        with HydroFabric(source,storage_options=options,cache=True,cache_dir=ROOT/(basin+"-mapping-cache")) as fabric:
+            opened=time.perf_counter();family=fabric.manifest.families["catchments"]
+            lookup=_IndexedIPC(fabric._source,fabric.manifest,family.lookup,family.directory,family.count)
+            assert lookup.schema.metadata[b"hfx:data_sha256"].decode()==family.data_sha256
+            initialized=time.perf_counter();table=lookup.read(ids);retrieved=time.perf_counter()
+            ordered=table.sort_by([("block","ascending"),("row","ascending")])["id"].to_pylist();sorted_at=time.perf_counter()
+            expected=json.loads((ROOT/(basin+"-physical-order.json")).read_text())
+            assert ordered==expected["ordered_ids"]
+            result={"basin":basin,"repeat":repeat,"cache_state":"fresh persistent cache" if repeat==1 else "same persistent cache reopened","count":len(ids),"open_seconds":opened-start,"lookup_initialization_seconds":initialized-opened,"selected_lookup_seconds":retrieved-initialized,"sort_seconds":sorted_at-retrieved,"total_mapping_seconds":sorted_at-start,"identity_checks":"lookup data_sha256 verified; exact saved permutation match","timing_scope":"Open source + selected physical mapping + sorting; excludes local input ID loading, saved mapping validation and artifact writing; local Darwin, not VM"}
+            results.append(result);(ROOT/"mapping-cost.json").write_text(json.dumps(results,indent=2)+"\n");print(json.dumps(result),flush=True)

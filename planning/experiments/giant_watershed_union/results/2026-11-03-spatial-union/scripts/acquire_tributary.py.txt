@@ -1,0 +1,63 @@
+"""Select a complete tributary and stream unchanged geometry from retained Kainji capture."""
+from __future__ import annotations
+import configparser
+import hashlib
+import json
+import struct
+import time
+from pathlib import Path
+import pyarrow as pa
+import pyarrow.parquet as pq
+from pourpoint import HydroFabric
+ROOT=Path(__file__).parent
+OLD=ROOT.parent/"giant-union-resume-20261102"
+SEED=1626052
+cfg=configparser.ConfigParser();cfg.read(Path.home()/".aws/credentials");p=cfg["hetzner-pourpoint"]
+options={"aws_access_key_id":p["aws_access_key_id"],"aws_secret_access_key":p["aws_secret_access_key"],"aws_endpoint":"https://fsn1.your-objectstorage.com","aws_region":"fsn1"}
+source=json.loads((OLD/"kainji_data_full/kainji_provenance.json").read_text())["source_url"]
+phases={}
+with HydroFabric(source,storage_options=options,cache=True,cache_dir=ROOT/"discovery-cache") as fabric:
+    start=time.perf_counter()
+    rivers=fabric.traverse("rivers",[SEED],relationship="upstream_ids")
+    phases["traverse_seconds"]=time.perf_counter()-start
+    assert len(rivers)==19529
+    start=time.perf_counter()
+    associations=pa.concat_tables([fabric.relationships("rivers",rivers[i:i+8192],columns=["local_catchment_ids"]).append_column("river_id",pa.array(rivers[i:i+8192])) for i in range(0,len(rivers),8192)])
+    phases["associations_seconds"]=time.perf_counter()-start
+    start=time.perf_counter()
+    coverage=pa.concat_tables([fabric.records("rivers",rivers[i:i+8192],columns=["id","local_catchment_coverage"]) for i in range(0,len(rivers),8192)])
+    phases["coverage_seconds"]=time.perf_counter()-start
+    assert coverage["id"].to_pylist()==rivers
+    assert set(coverage["local_catchment_coverage"].to_pylist())=={"supplied"}
+    selected=list(dict.fromkeys(cid for row in associations["local_catchment_ids"].to_pylist() for cid in (row or [])))
+    pq.write_table(associations,ROOT/"tributary-river-associations.parquet")
+    pq.write_table(coverage,ROOT/"tributary-river-coverage.parquet")
+    (ROOT/"tributary-river-ids.json").write_text(json.dumps(rivers)+"\n")
+    (ROOT/"tributary-selected-ids.json").write_text(json.dumps(selected)+"\n")
+    manifest=dict(fabric.manifest.declarations)
+    assert manifest==json.loads((ROOT/"source-manifest.json").read_text())
+# Stream selected original bytes in original capture order, not traversal order.
+selected_set=set(selected)
+seen=[]
+start=time.perf_counter()
+source_hash=hashlib.sha256();output_hash=hashlib.sha256()
+with (OLD/"kainji_data_full/kainji_inputs.wkb_bin").open("rb") as src,(ROOT/"tributary_inputs.wkb_bin").open("xb") as dst:
+    while header:=src.read(12):
+        assert len(header)==12
+        cid,size=struct.unpack("<QI",header)
+        payload=src.read(size);assert len(payload)==size
+        source_hash.update(header);source_hash.update(payload)
+        if cid in selected_set:
+            dst.write(header);dst.write(payload);output_hash.update(header);output_hash.update(payload);seen.append(cid)
+assert source_hash.hexdigest()=="70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae"
+assert len(seen)==len(selected_set) and set(seen)==selected_set
+phases["capture_selection_seconds"]=time.perf_counter()-start
+addresses=pq.read_table(ROOT/"kainji-physical-addresses.parquet")
+addresses=addresses.filter(pa.compute.is_in(addresses["id"],value_set=pa.array(selected)))
+pq.write_table(addresses,ROOT/"tributary-physical-addresses.parquet")
+ordered=addresses.sort_by([("block","ascending"),("row","ascending")])["id"].to_pylist()
+assert set(ordered)==selected_set and len(ordered)==len(selected)
+metadata={"input_sha256":output_hash.hexdigest(),"source_url":source,"seed_river_id":SEED,"river_count":len(rivers),"catchment_count":len(selected),"all_rivers_coverage":"supplied","complete_upstream_closure":True,"capture_order":"relative original Kainji capture order","source_capture_sha256":source_hash.hexdigest(),"manifest_sha256":hashlib.sha256((ROOT/"source-manifest.json").read_bytes()).hexdigest(),"catchments_data_sha256":manifest["families"]["catchments"]["data_sha256"],"geometry_policy":"unchanged original WKB; no decode or repair","limitation":"Current topology/lookup; original capture acquisition manifest unavailable. Current geometry equality not revalidated by this extraction.","phases":phases}
+(ROOT/"tributary-physical-order.json").write_text(json.dumps({**metadata,"ordered_ids":ordered})+"\n")
+(ROOT/"tributary-provenance.json").write_text(json.dumps(metadata,indent=2)+"\n")
+print(json.dumps(metadata,indent=2),flush=True)

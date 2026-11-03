@@ -1,0 +1,20 @@
+{
+  "candidate": "shapely_direct_union",
+  "status": "success",
+  "stage_timings": {
+    "union_seconds": 78.650355741,
+    "validation_seconds": 0.09147824799998716,
+    "write_seconds": 0.008369109000000208
+  },
+  "candidate_seconds": 78.750405339,
+  "peak_rss_mb": 1303.7890625,
+  "is_valid": true,
+  "area": 15.229803925923882,
+  "wkb_file": "/results/tributary/repeat-1/shapely_direct_union/output/shapely_direct_union.wkb",
+  "memory_scope": "fresh candidate process through output serialization; excludes external topology check",
+  "input_count": 19527,
+  "read_seconds": 0.2628230469999835,
+  "decode_seconds": 0.5968430770000168,
+  "total_seconds": 79.61743793900001,
+  "total_scope": "input read through output write; interpreter/import startup recorded by matrix wall clock"
+}

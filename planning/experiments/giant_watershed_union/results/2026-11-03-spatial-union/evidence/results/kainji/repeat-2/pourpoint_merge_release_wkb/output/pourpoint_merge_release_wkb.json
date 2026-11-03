@@ -1,0 +1,22 @@
+{
+  "candidate": "pourpoint_merge_release_wkb",
+  "status": "success",
+  "stage_timings": {
+    "merge_import_seconds": 0.18023983399962162,
+    "wrapper_seconds": 0.7134744000004503,
+    "merge_decode_and_union_seconds": 769.7678556270002,
+    "validation_seconds": 1.0613414779991217,
+    "write_seconds": 0.0500487780000185
+  },
+  "candidate_seconds": 771.773177436,
+  "peak_rss_mb": 15758.02734375,
+  "is_valid": true,
+  "area": 129.49230837035208,
+  "wkb_file": "/results/kainji/repeat-2/pourpoint_merge_release_wkb/output/pourpoint_merge_release_wkb.wkb",
+  "memory_scope": "fresh candidate process through output serialization; excludes external topology check",
+  "input_count": 169770,
+  "read_seconds": 2.0908840109996163,
+  "decode_seconds": 0.0,
+  "total_seconds": 773.877907258,
+  "total_scope": "input read through output write; interpreter/import startup recorded by matrix wall clock"
+}
