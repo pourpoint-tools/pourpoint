@@ -1,0 +1,10 @@
+{
+  "kainji": {
+    "path": "kainji_inputs.wkb_bin",
+    "sha256": "70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae"
+  },
+  "tributary": {
+    "path": "tributary_inputs.wkb_bin",
+    "sha256": "836c78623aab91453164d27c157948d4f470946ba988ac8a920773476a7723e8"
+  }
+}

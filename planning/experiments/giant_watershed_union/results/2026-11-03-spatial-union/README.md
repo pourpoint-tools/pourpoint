@@ -1,9 +1,14 @@
 # Spatial union and memory experiment
 
-Work in progress for [#216](https://github.com/pourpoint-tools/pourpoint/issues/216)
+Findings for [#216](https://github.com/pourpoint-tools/pourpoint/issues/216)
 and the [published vision](../../../../visions/2026-11-03-faster-lower-memory-watershed-union-experiment.md).
-This report is not a completion claim or a production recommendation. Kainji measurements,
-final evidence export, cost accounting and resource cleanup are still pending.
+Performance measurements and export are complete; rented resources were verified deleted.
+No production optimization is adopted.
+
+**Measured finding:** existing physical-order batches with two bounded GEOS threads
+roughly halved union time on both complete workloads. Kainji peak fell from 9.66 GiB
+to 5.06–5.20 GiB. This is promising runtime-only evidence, not whole-delineation or
+16 GB laptop validation; no new HFX contract is justified by these comparisons.
 
 ## Questions and comparisons
 
@@ -25,10 +30,10 @@ manifest/provenance limits; current source checks cannot establish missing histo
 identity. The second workload is the complete upstream closure of river 1626052:
 19,529 rivers and 19,527 supplied catchments, selected from unchanged captured WKB.
 
-Final evidence will include input hashes, current source identities, selected-ID and
+Retained evidence includes input hashes, current source identities, selected-ID and
 physical-address preparation scripts, machine/software versions, exact candidate commands,
 raw measurement/validation receipts, and preparation/acquisition timings. Large source
-and output WKB, caches, credentials and build artifacts will not be committed.
+and output WKB, caches, credentials and build artifacts are excluded from Git.
 
 Physical order comes from the authoritative HFX lookup, not extraction Parquet groups.
 The experiment reorders selected records into fixed-count union tasks; it does not union
@@ -57,7 +62,39 @@ cost, with uncontrolled OS/network caches. They do not establish same-open-fabri
 union or complete delineation speedups. Report those limits rather than hiding unmeasured
 work behind isolated union improvements.
 
-## Results so far: complete tributary
+## Kainji results
+
+169,770 captured catchments; identical IDs and geometry bytes for every candidate.
+Times include input read through output write, not acquisition or external validation.
+Peak RSS is fresh-process high-water in GiB.
+
+| Candidate | Repeat 1 seconds | Repeat 2 seconds | Peak GiB, repeats 1 / 2 |
+|---|---:|---:|---:|
+| Direct GEOS | 763.01 | 769.82 | 9.660 / 9.660 |
+| Original native-merge harness | 769.55 | 773.15 | 18.264 / 18.344 |
+| Native merge, release duplicate WKB | 762.36 | 773.88 | 15.388 / 15.389 |
+| Physical-order serial | 703.21 | 704.35 | 4.724 / 4.724 |
+| Physical-order two threads | 388.69 | 387.37 | 5.202 / 5.064 |
+
+[Raw Kainji receipts](evidence/results/kainji/) retain exact values. Repeat 1 ran direct,
+original merge, release-WKB control, physical serial, then physical two threads. Repeat 2
+reversed that schedule. All outputs are valid; all comparisons against repeat-1 direct
+GEOS are exactly equal. Two repeats support the large difference, not a precise universal
+speed factor. Two-thread time is about 49% lower and peak about 46–48% lower than direct.
+Serial grouping uses still less memory but takes about 81% longer than two threads.
+
+Grouping uses 34 tasks (33 of 5,000 records and one of 4,770), with source WKB retained.
+Final combination alone costs 40.30–40.69 seconds, included above. Each thread decodes
+only its active group; all partial unions remain for final combination. No precision,
+repair, simplification or hole policy changes occur.
+
+Clearing only duplicate captured Python WKB lowers native-merge peak by 2.88–2.96 GiB,
+about 16%, with no clear timing improvement. This is a real harness retention contribution,
+not evidence that source features can be dropped from public results. The remaining
+15.39 GiB peak is still too close to a whole 16 GB machine's memory for ordinary-app
+headroom; the original 18.3 GiB result overstates native merge's standalone memory cost.
+
+## Complete tributary results
 
 Receipt-derived read-through-write times and fresh-process peak RSS (GiB):
 
@@ -74,7 +111,10 @@ that first direct result is the comparison baseline, not independently validated
 Repeat 1 ran direct, input-serial, physical-serial, bbox-serial, physical-threads2;
 repeat 2 reversed the retained comparison: physical-threads2, physical-serial, direct.
 Serial differences are small; two repeats do not establish a precise small speedup.
-These are not Kainji or whole-delineation conclusions.
+Two threads reduce time about 47% versus direct here, but use slightly **more** peak memory
+(1.303 versus 1.264–1.273 GiB). Benefits are not limited to Kainji; memory benefit is not
+universal. Input-order and bbox-order serial pilots provide no speed improvement in their
+single runs and were not expanded into a large candidate tournament.
 
 [Raw receipts](evidence/results/tributary/) preserve timings, commands, logs and separate
 validation. [Machine/source provenance](evidence/machine-source-provenance.txt) records
@@ -93,27 +133,65 @@ measurement assumes `/root` inputs and `/results` output on the VM. Adjust those
 explicitly, retain the adjusted scripts, and follow each receipt's exact command. Never
 copy credentials into a report. Inputs, physical sidecars and output WKB are retained
 outside Git; [hashes](evidence-sha256.json) bind the committed small evidence snapshots,
-including the exact preparation scripts. The machine/source record contains the measured
+including the exact preparation scripts. `measure.py.txt` is the original driver;
+`measure-with-validation-rss.py.txt` is the later driver with GNU time around validation.
+[Driver version boundaries](evidence/driver-versions.json) preserve their hashes. Earlier
+validation receipts record elapsed time but not peak RSS; separate `validation-rss-rerun`
+receipts now measure those checks without rewriting the original records. The machine/source record contains the measured
 commit, experiment source hashes and `uv.lock` hash; use that commit's lock with `uv sync --locked`
 before running scripts. Raw receipts retain execution paths and machine identifiers as
 captured; they are evidence, not portable path defaults.
 
-Kainji measurements, final export, cost and cleanup remain pending. Report failed or
-incomplete runs explicitly; do not infer agreement from validity or area alone.
+[Mapping-cost reruns](evidence/mapping-cost.json), reproduced by `mapping_cost.py.txt`,
+measured local metadata-only source open, lookup initialization, selected address reads
+and sorting: Kainji 1.506 / 0.181 seconds and tributary 0.638 / 0.025 seconds for fresh /
+reopened persistent caches. They exclude input-ID loading, input hashing, saved-permutation
+comparison and artifact writes. The original preparation was not timed. These reruns
+check exact saved permutations and lookup data binding, not full Kainji source geometry.
+Do not add these local times to VM union or claim measured producer-cost amortization.
 
 ## Laptop implications and recommendations
 
-Pending Kainji results. No actual 16 GB laptop has been validated. Controlled VM memory and
+No actual 16 GB laptop has been validated. Controlled VM memory and
 no-swap observations do not establish shared-laptop responsiveness or safety from swapping.
 No fixed laptop memory ceiling or speed target was agreed. Account for retained source,
 simultaneous GEOS workspaces, intermediates, final union and separate validation memory.
 
-No production optimization is adopted by this experiment. Recommendations, rejected leads,
-uncertainty and any HFX implications return to #195; that discussion remains open.
+Recommend further runtime-only evaluation of existing physical ordering, bounded decode
+and two threads while preserving real source/result retention. Serial grouping is an
+alternative when lower peak matters more than wait time. Runtime bbox preparation did
+not beat direct in its tributary pilot; new producer metadata, coverage union, Numba and
+new geometry policy were not needed or tested. Existing HFX addresses already support
+selected-subset ordering; no format addition is justified by this experiment.
+
+Whole-workflow benefit is bounded by unmeasured integration: no same-open-fabric repeated
+union, refinement/contribution assembly, full retained delineation result, shared-laptop
+load or swapping test was run. Repeated local acquisition and mapping checks show cache
+reuse separately, not an end-to-end speedup. Validation also needs its own working set. Separate GNU-time checks (including later
+reruns for initially uninstrumented checks) used 0.151–0.152 GiB and 0.97–1.02 seconds on the tributary, and
+0.704–0.706 GiB and 8.29–8.64 seconds on Kainji. Exact values are in validation stderr/execution
+receipts. They run sequentially after candidates and are not added to union peak RSS.
+The historical Rust comparison remains unresolved and is not a target or correctness oracle.
+
+No production optimization is adopted. Findings and limitations return to #195 for the
+human to resume; that discussion remains open.
 
 ## Cost, cleanup and evidence return
 
-Pending final rental accounting and verified deletion receipts. The authorized total cap
-is €10, including associated rented resources. Report retained evidence and resource cleanup
-before completion of #216. Add the final #195 evidence-return link after publication and
-read-back; publishing this draft or merging tooling does not complete either issue.
+[Cleanup verification](evidence/cleanup-verification.json) confirms the experiment VM and
+both primary IPs absent at 2026-11-03 12:49:53 UTC; an unrelated server was preserved.
+No backups, snapshots or volumes were created. [Export verification](evidence/export-verification.json)
+confirms all 220 remote result files matched local SHA-256 before deletion; their
+[index](evidence/remote-results-index.json) includes large WKB outputs retained outside Git.
+Empty logs and WKB are omitted from this report, not from the preserved export.
+The compact [input index](evidence/input-index.json) uses basenames in place of local
+absolute paths; original raw scientific receipts are unchanged.
+
+[Cost accounting](evidence/cost-summary.json) reserves **€0.722216** for three started
+hours of server plus IPv4, including VAT, versus the €10 rental cap. Actual elapsed
+lifetime to verified absence was at most 2.31 hours. This is a conservative estimate,
+not an invoice; small source-object request costs are unquantified, and IPv6 was free.
+
+Return all findings to [#195](https://github.com/pourpoint-tools/pourpoint/issues/195)
+after final review/publication. That discussion remains open. #216 must not close before
+that evidence-return comment is posted and read back and the target report is verified.

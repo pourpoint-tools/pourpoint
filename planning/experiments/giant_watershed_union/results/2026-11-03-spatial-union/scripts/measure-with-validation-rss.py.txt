@@ -1,0 +1,26 @@
+"""Sequential candidate execution using the reviewed harness receipts."""
+from __future__ import annotations
+import argparse
+import json
+import sys
+from pathlib import Path
+from planning.experiments.giant_watershed_union.run_matrix import execute, sha256
+P="planning.experiments.giant_watershed_union."
+p=argparse.ArgumentParser();p.add_argument("--basin",required=True);p.add_argument("--name",required=True);p.add_argument("--order");p.add_argument("--workers",default="1");p.add_argument("--baseline");p.add_argument("--repeat",default="1");a=p.parse_args()
+source=Path("/root")/("kainji_inputs.wkb_bin" if a.basin=="kainji" else "tributary_inputs.wkb_bin")
+root=Path("/results")/a.basin/("repeat-"+a.repeat)/a.name
+out=root/"output"
+if a.order:
+    cmd=[sys.executable,"-m",P+"bench_grouped","--input",str(source),"--output-dir",str(out),"--order",a.order,"--workers",a.workers,"--batch-size","5000"]
+    if a.order=="physical":cmd += ["--physical-order",f"/root/{a.basin}-physical-order.json"]
+else:
+    cmd=[sys.executable,"-m",P+"bench_python","--input",str(source),"--output-dir",str(out),"--candidate",a.name]
+cmd=["/usr/bin/time","-v",*cmd]
+record=execute(cmd,root,{"input_sha256":sha256(source),"basin":a.basin,"repeat":a.repeat,"name":a.name},timeout=2400)
+print(json.dumps(record),flush=True)
+if record["status"]!="success":sys.exit(1)
+output=list(out.glob("*.wkb"));assert len(output)==1
+if a.baseline:
+    val=root/"validation"
+    check=execute(["/usr/bin/time","-v",sys.executable,"-m",P+"verify_outputs","--baseline",a.baseline,"--candidates",str(output[0]),"--output",str(val/"comparison.json")],val,{"candidate":a.name},timeout=300)
+    print(json.dumps(check),flush=True)
