@@ -1,0 +1,26 @@
+{
+  "name": "rust_spatial_reduce_parallel",
+  "mode": "spatial",
+  "threads": 8,
+  "read_decode_seconds": 6.424068058,
+  "preparation_seconds": 0.010132173,
+  "sorting_seconds": 17.166290494,
+  "kernel_seconds": 63.141754879,
+  "diagnostics_seconds": 0.017709597,
+  "write_seconds": 0.135758782,
+  "total_seconds": 86.895907104,
+  "timing_scope": "main entry through WKB write and RSS sample; excludes JSON report, process startup and external validation",
+  "peak_rss_mb": 5551.86328125,
+  "memory_scope": "isolated process lifetime high-water RSS through WKB serialization/write, MiB",
+  "input_record_count": 169770,
+  "input_polygon_count": 267854,
+  "polygon_count": 209,
+  "total_area": 129.49230604582758,
+  "bounds": [
+    -11.589277777182547,
+    8.555944441079973,
+    9.436166670811685,
+    23.946388898610948
+  ],
+  "is_valid": null
+}

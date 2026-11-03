@@ -1,0 +1,17 @@
+{
+  "agreement_status": "unknown",
+  "command": [
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.verify_outputs",
+    "--baseline",
+    "/root/kainji-results-repeat2/repeat-1/shapely_direct_union/shapely_direct_union.wkb",
+    "--candidates",
+    "/root/kainji-results-repeat2/repeat-1/pourpoint_merge/pourpoint_merge.wkb",
+    "--output",
+    "/root/kainji-results-repeat2/repeat-1/pourpoint_merge/validation/comparison.json"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 9.510092514999997
+}

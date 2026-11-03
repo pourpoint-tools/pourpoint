@@ -1,0 +1,17 @@
+{
+  "agreement_status": "unknown",
+  "command": [
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/.venv/bin/python",
+    "-m",
+    "planning.experiments.giant_watershed_union.verify_outputs",
+    "--baseline",
+    "/root/kainji-results-repeat2/repeat-1/shapely_direct_union/shapely_direct_union.wkb",
+    "--candidates",
+    "/root/kainji-results-repeat2/repeat-1/rust_unsorted_parallel/rust_unsorted_reduce_parallel.wkb",
+    "--output",
+    "/root/kainji-results-repeat2/repeat-1/rust_unsorted_parallel/validation/comparison.json"
+  ],
+  "status": "failed",
+  "error": "Command '['/root/pourpoint/.worktrees/visions/effort-212-giant-union/.venv/bin/python', '-m', 'planning.experiments.giant_watershed_union.verify_outputs', '--baseline', '/root/kainji-results-repeat2/repeat-1/shapely_direct_union/shapely_direct_union.wkb', '--candidates', '/root/kainji-results-repeat2/repeat-1/rust_unsorted_parallel/rust_unsorted_reduce_parallel.wkb', '--output', '/root/kainji-results-repeat2/repeat-1/rust_unsorted_parallel/validation/comparison.json']' timed out after 600.0 seconds",
+  "process_wall_seconds": 600.3413979460001
+}

@@ -1,0 +1,16 @@
+{
+  "river_count": 169805,
+  "catchment_count": 169770,
+  "recovered_selection_equals_capture_order": true,
+  "seed_association": [
+    {
+      "local_catchment_ids": [
+        2235378
+      ]
+    }
+  ],
+  "manifest_sha256": "af831fec8d1469e304d21ff9271faead0035bb6f0ce8bf1e007c03c022a13991",
+  "manifest_matches_live_fabric": true,
+  "geometry_downloaded": false,
+  "limitation": "Original extraction did not capture manifest; live identity cannot establish historical manifest byte identity or geometry/source correspondence."
+}

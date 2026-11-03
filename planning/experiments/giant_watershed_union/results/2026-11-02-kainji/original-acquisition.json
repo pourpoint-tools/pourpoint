@@ -1,0 +1,21 @@
+{
+  "source_url": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+  "seed_river_id": 1681474,
+  "expected_river_count": 169805,
+  "expected_catchment_count": 169770,
+  "expected_terminal_catchment": 2235378,
+  "fabric_open_seconds": 0.005729987999984587,
+  "traverse_seconds": 5.440235030999986,
+  "observed_river_count": 169805,
+  "relationships_seconds": 0.791324325000005,
+  "observed_catchment_count": 169770,
+  "terminal_catchment_present": true,
+  "records_seconds": 84.36496586799998,
+  "parquet_size_bytes": 757615870,
+  "wkb_bin_size_bytes": 3137294562,
+  "total_wkb_payload_bytes": 3135257322,
+  "sample_vertex_count": 1140222,
+  "estimated_total_vertices": 193575488,
+  "kainji_catchments.parquet_sha256": "de8335976562d482ee46d2d8d53613975675743794bf44858348e9acc6062e3b",
+  "kainji_inputs.wkb_bin_sha256": "70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae"
+}

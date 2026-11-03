@@ -1,0 +1,26 @@
+{
+  "name": "rust_unsorted_reduce_parallel",
+  "mode": "unsorted",
+  "threads": 8,
+  "read_decode_seconds": 6.435479715,
+  "preparation_seconds": 0.021755968,
+  "sorting_seconds": 6e-8,
+  "kernel_seconds": 162.406550274,
+  "diagnostics_seconds": 0.172377929,
+  "write_seconds": 2.038502269,
+  "total_seconds": 171.091783332,
+  "timing_scope": "main entry through WKB write and RSS sample; excludes JSON report, process startup and external validation",
+  "peak_rss_mb": 20014.0,
+  "memory_scope": "isolated process lifetime high-water RSS through WKB serialization/write, MiB",
+  "input_record_count": 169770,
+  "input_polygon_count": 267854,
+  "polygon_count": 218,
+  "total_area": 129.49227298753945,
+  "bounds": [
+    -11.589277779099566,
+    8.555944437819907,
+    9.436166668894666,
+    23.946388895350882
+  ],
+  "is_valid": null
+}

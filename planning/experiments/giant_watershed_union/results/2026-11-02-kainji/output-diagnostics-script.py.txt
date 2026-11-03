@@ -1,0 +1,8 @@
+import json
+from pathlib import Path
+import shapely
+rows=[]
+for p in Path('/root/kainji-results-repeat2').glob('repeat-*/*/*.wkb'):
+ g=shapely.from_wkb(p.read_bytes()); parts=shapely.get_parts(g)
+ rows.append(dict(path=str(p),parts=len(parts),holes=int(sum(shapely.get_num_interior_rings(parts))),coordinates=int(shapely.get_num_coordinates(g)),area=float(shapely.area(g)),bounds=shapely.bounds(g).tolist()))
+Path('/root/output-diagnostics.json').write_text(json.dumps(rows,indent=2))
