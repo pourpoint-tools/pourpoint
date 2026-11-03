@@ -122,7 +122,9 @@ overlap: do **not** add those to wall time. `stage_timings` separates read, grou
 group decode/union wall, final union, validation and write. Total excludes input hashing,
 imports and external topology checks; peak RSS includes the fresh process through write.
 Record outer process wall time and keep source commit/lock, logs and physical sidecar
-alongside the JSON/WKB. New output directories prevent accidental evidence reuse.
+alongside the JSON/WKB. `bench_grouped` requires a new output directory to prevent
+accidental evidence reuse. The older `bench_python` CLI does not enforce freshness;
+use a new directory for every merge-control run to avoid overwriting evidence.
 Use the existing `verify_outputs` command in a separate process to check validity and
 exact topology against direct GEOS. Baseline GEOS is not an independent oracle.
 
