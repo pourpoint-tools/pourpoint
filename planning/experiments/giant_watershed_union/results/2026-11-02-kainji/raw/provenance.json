@@ -1,0 +1,48 @@
+{
+  "input_sha256": "70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae",
+  "input_bytes": 3137294562,
+  "input_order": "captured record order",
+  "acquisition": "previously captured; excluded from candidate timing",
+  "machine": {
+    "system": "Linux",
+    "node": "pourpoint-giant-union-dedicated",
+    "release": "6.8.0-138-generic",
+    "version": "#138-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 31 22:41:49 UTC 2026",
+    "machine": "x86_64",
+    "processor": "x86_64"
+  },
+  "cpu_count": 8,
+  "python": "3.13.18 (main, Oct 26 2026, 14:08:20) [Clang 23.1.3 ]",
+  "shapely": "2.2.0",
+  "geos": "3.14.1",
+  "source_commit": "1619a22ce6277e59bf05b3fb386f2950e4c7455c",
+  "source_status": "",
+  "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "file_sha256": {
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/test_candidates.py": "8701fa677301b28a7090c8e9b53c3056e6edeb56cc5940ceeae1ef0f2c7ef740",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/test_matrix.py": "3f4fec31616496f94dbbb6bd60b1abaecb4510181913d83227ba2f39b3b767b2",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/verify_outputs.py": "d142991c524b0f022d23c71974ccbadab3d8c1e6e7c13fe287ae6a9ee4fff853",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/test_extract.py": "4f8e30ab736b3f0709025ada909bb9f45a138582b27300b88351f1f715ffd337",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/run_matrix.py": "d0d57c40a61c18aa0f8e3b92f627b536ed44fc70e9153154c97ca175380b3239",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/__init__.py": "6c2cdd2c3c4b46456b3c626367e459b770c60677979c965dd2b2715dc42ba0be",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/smoke_inputs.py": "9259345c9aff5f69c1d7acfba24c240de14143b77df12364b0ad391024368c36",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/extract.py": "4058cd676dee504c8300c3e6345349fcf9c22c7bddf7e425b6adb4f230584c81",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/bench_python.py": "af964285a53176423759508764b8f2c89308ff6ea1f41ffea109873a57a25fbd",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/rust/src/main.rs": "dc6a978e008171166175c8634564541d69eb41e0e1f17cb18eaf054480715a33",
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/rust/Cargo.lock": "d1cae7c8042859c537b275383243a40e7f310fd8f6ed650dbed4c393ef21d658",
+    "uv.lock": "5f9f0487a2a27b2d8d93400705de3008bd3ac7124d638e45a190d8ed0e6657ce",
+    "src/pourpoint/refinement.py": "bc51d7d945d3d512203e0c948162883380d4b43465f9a57e297e702e8e44e0e9",
+    "src/pourpoint/features.py": "46bec7d655b5dfd6d9949c031554c4044a1b9c2f4687b70fd0c226f05c7ac310"
+  },
+  "configuration": {
+    "input": "/root/kainji_data/kainji_inputs.wkb_bin",
+    "results_dir": "/root/kainji-results-repeat2",
+    "repeats": 2,
+    "workers": 8,
+    "batch_size": 5000,
+    "validation_seconds": 600.0,
+    "skip_rust": false
+  },
+  "historical_algorithm_commit": "60e3d6e383546ea6ed20e68fe4d77959c816a48c",
+  "rust_dependencies": "experiment Cargo.lock, not the historical engine lock"
+}

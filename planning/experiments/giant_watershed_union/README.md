@@ -4,6 +4,9 @@ Bounded harness for [the vision](../../visions/2026-11-02-giant-watershed-union-
 and [#212](https://github.com/pourpoint-tools/pourpoint/issues/212). Production code is unchanged.
 No performance or correctness conclusion follows from the small smoke fixture.
 
+[Kainji dedicated-VM measurements](results/2026-11-02-kainji/README.md) report two repeats,
+validated GEOS agreement and unresolved Rust correctness.
+
 Run from the repository root with `uv`. Source inputs and benchmark outputs stay outside Git.
 
 ```sh

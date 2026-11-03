@@ -1,0 +1,9 @@
+{
+  "currency": "EUR",
+  "old_vm_reserved_gross": 0.7,
+  "dedicated_vm_started_hours": 3,
+  "dedicated_vm_hourly_gross": 0.2398739,
+  "ipv4_hourly_gross": 0.0008648,
+  "combined_rental_reserved_gross": 1.4222161,
+  "note": "Estimated gross rental including IP, not invoice; excludes any source storage request fees. Both VMs and their IPs verified deleted. No backups/volumes created."
+}

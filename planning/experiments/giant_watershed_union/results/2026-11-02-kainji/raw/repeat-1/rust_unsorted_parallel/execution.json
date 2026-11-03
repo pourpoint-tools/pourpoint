@@ -1,0 +1,16 @@
+{
+  "input_sha256": "70d6d83b3bebe8a0b3723378d03f3ad839bfc400e12be3de21971cd6bb1067ae",
+  "repeat": 1,
+  "candidate": "rust_unsorted_parallel",
+  "workers": 8,
+  "command": [
+    "/root/pourpoint/.worktrees/visions/effort-212-giant-union/planning/experiments/giant_watershed_union/rust/target/release/giant-watershed-union-rust",
+    "/root/kainji_data/kainji_inputs.wkb_bin",
+    "/root/kainji-results-repeat2/repeat-1/rust_unsorted_parallel",
+    "unsorted",
+    "8"
+  ],
+  "status": "success",
+  "returncode": 0,
+  "process_wall_seconds": 172.31612299399967
+}

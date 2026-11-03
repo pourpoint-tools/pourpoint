@@ -1,0 +1,28 @@
+{
+  "totals": {
+    "records": 169770,
+    "wkb_payload_bytes": 3135257322,
+    "vertices": 195706524,
+    "holes": 22192,
+    "polygons": 267854,
+    "records_with_holes": 16504,
+    "records_with_multiple_polygon_parts": 42452,
+    "multipolygon_records": 42452
+  },
+  "coordinate_dimensions_per_record": {
+    "2": 169770
+  },
+  "wkb_types_including_children": {
+    "3": 267854,
+    "6": 42452
+  },
+  "unique_ids": 169770,
+  "ordered_binary_ids_equal_parquet_ids": true,
+  "all_binary_wkb_equal_parquet_wkb": true,
+  "ordered_ids_sha256_uint64_le": "408ea6f89349c1a1f7a1eda4dee6a1a286a75e50925e0171a518420b04db7bf3",
+  "terminal_catchment_present": true,
+  "vertex_count_includes_ring_closure_coordinates": true,
+  "validity_evaluated": false,
+  "self_tests": "passed: polygon hole, multipart, Z; ISO/extended; both endiannesses",
+  "batch_size": 128
+}

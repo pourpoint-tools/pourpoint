@@ -1,0 +1,86 @@
+[
+  {
+    "repeat": 1,
+    "candidate": "shapely_direct_union",
+    "output_sha256": "9d917d241d88f56156f6882baf839196ab6543ae72e714623ad327fe9ee71b81",
+    "is_valid": true,
+    "agreement_status": "equal"
+  },
+  {
+    "repeat": 1,
+    "candidate": "pourpoint_merge",
+    "output_sha256": "9d917d241d88f56156f6882baf839196ab6543ae72e714623ad327fe9ee71b81",
+    "is_valid": true,
+    "agreement_status": "equal"
+  },
+  {
+    "repeat": 1,
+    "candidate": "shapely_batched_union",
+    "output_sha256": "c71b72a119f66e5611799c14a900fe0ea1e07c28c6e361637783ae9ba49f3d8f",
+    "is_valid": true,
+    "agreement_status": "equal"
+  },
+  {
+    "repeat": 1,
+    "candidate": "rust_sorted_serial",
+    "output_sha256": "43b22f7ef4fa845c69a89b1f5a7f84190b3c6a7b9057d65795066fea0e1e9dbb",
+    "is_valid": null,
+    "agreement_status": "unknown"
+  },
+  {
+    "repeat": 1,
+    "candidate": "rust_sorted_parallel",
+    "output_sha256": "43b22f7ef4fa845c69a89b1f5a7f84190b3c6a7b9057d65795066fea0e1e9dbb",
+    "is_valid": null,
+    "agreement_status": "unknown"
+  },
+  {
+    "repeat": 1,
+    "candidate": "rust_unsorted_parallel",
+    "output_sha256": "6b9ddcf8ace4d18831e8b2712781bc2c729bacac140e0716d7568fb2a27f76ab",
+    "is_valid": null,
+    "agreement_status": "unknown"
+  },
+  {
+    "repeat": 2,
+    "candidate": "shapely_direct_union",
+    "output_sha256": "9d917d241d88f56156f6882baf839196ab6543ae72e714623ad327fe9ee71b81",
+    "is_valid": true,
+    "agreement_status": "equal"
+  },
+  {
+    "repeat": 2,
+    "candidate": "pourpoint_merge",
+    "output_sha256": "9d917d241d88f56156f6882baf839196ab6543ae72e714623ad327fe9ee71b81",
+    "is_valid": true,
+    "agreement_status": "equal"
+  },
+  {
+    "repeat": 2,
+    "candidate": "shapely_batched_union",
+    "output_sha256": "c71b72a119f66e5611799c14a900fe0ea1e07c28c6e361637783ae9ba49f3d8f",
+    "is_valid": true,
+    "agreement_status": "equal"
+  },
+  {
+    "repeat": 2,
+    "candidate": "rust_sorted_serial",
+    "output_sha256": "43b22f7ef4fa845c69a89b1f5a7f84190b3c6a7b9057d65795066fea0e1e9dbb",
+    "is_valid": null,
+    "agreement_status": "unknown"
+  },
+  {
+    "repeat": 2,
+    "candidate": "rust_sorted_parallel",
+    "output_sha256": "43b22f7ef4fa845c69a89b1f5a7f84190b3c6a7b9057d65795066fea0e1e9dbb",
+    "is_valid": null,
+    "agreement_status": "unknown"
+  },
+  {
+    "repeat": 2,
+    "candidate": "rust_unsorted_parallel",
+    "output_sha256": "6b9ddcf8ace4d18831e8b2712781bc2c729bacac140e0716d7568fb2a27f76ab",
+    "is_valid": null,
+    "agreement_status": "unknown"
+  }
+]

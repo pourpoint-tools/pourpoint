@@ -1,0 +1,158 @@
+[
+  {
+    "path": "/root/kainji-results-repeat2/repeat-1/rust_unsorted_parallel/rust_unsorted_reduce_parallel.wkb",
+    "parts": 218,
+    "holes": 10041751,
+    "coordinates": 56457443,
+    "area": 129.49227298752552,
+    "bounds": [
+      -11.589277779099566,
+      8.555944437819907,
+      9.436166668894666,
+      23.946388895350882
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-1/rust_sorted_serial/rust_spatial_reduce_serial.wkb",
+    "parts": 209,
+    "holes": 805468,
+    "coordinates": 5489557,
+    "area": 129.4923060458418,
+    "bounds": [
+      -11.589277777182547,
+      8.555944441079973,
+      9.436166670811685,
+      23.946388898610948
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-1/pourpoint_merge/pourpoint_merge.wkb",
+    "parts": 211,
+    "holes": 231,
+    "coordinates": 1369795,
+    "area": 129.49230837035208,
+    "bounds": [
+      -11.589277777778257,
+      8.555944444445668,
+      9.436166666664509,
+      23.94638888888889
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-1/shapely_batched_union/shapely_batched_union.wkb",
+    "parts": 211,
+    "holes": 231,
+    "coordinates": 1369795,
+    "area": 129.4923083703452,
+    "bounds": [
+      -11.589277777778257,
+      8.555944444445668,
+      9.436166666664509,
+      23.94638888888889
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-1/shapely_direct_union/shapely_direct_union.wkb",
+    "parts": 211,
+    "holes": 231,
+    "coordinates": 1369795,
+    "area": 129.49230837035208,
+    "bounds": [
+      -11.589277777778257,
+      8.555944444445668,
+      9.436166666664509,
+      23.94638888888889
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-1/rust_sorted_parallel/rust_spatial_reduce_parallel.wkb",
+    "parts": 209,
+    "holes": 805468,
+    "coordinates": 5489557,
+    "area": 129.4923060458418,
+    "bounds": [
+      -11.589277777182547,
+      8.555944441079973,
+      9.436166670811685,
+      23.946388898610948
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-2/rust_unsorted_parallel/rust_unsorted_reduce_parallel.wkb",
+    "parts": 218,
+    "holes": 10041751,
+    "coordinates": 56457443,
+    "area": 129.49227298752552,
+    "bounds": [
+      -11.589277779099566,
+      8.555944437819907,
+      9.436166668894666,
+      23.946388895350882
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-2/rust_sorted_serial/rust_spatial_reduce_serial.wkb",
+    "parts": 209,
+    "holes": 805468,
+    "coordinates": 5489557,
+    "area": 129.4923060458418,
+    "bounds": [
+      -11.589277777182547,
+      8.555944441079973,
+      9.436166670811685,
+      23.946388898610948
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-2/pourpoint_merge/pourpoint_merge.wkb",
+    "parts": 211,
+    "holes": 231,
+    "coordinates": 1369795,
+    "area": 129.49230837035208,
+    "bounds": [
+      -11.589277777778257,
+      8.555944444445668,
+      9.436166666664509,
+      23.94638888888889
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-2/shapely_batched_union/shapely_batched_union.wkb",
+    "parts": 211,
+    "holes": 231,
+    "coordinates": 1369795,
+    "area": 129.4923083703452,
+    "bounds": [
+      -11.589277777778257,
+      8.555944444445668,
+      9.436166666664509,
+      23.94638888888889
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-2/shapely_direct_union/shapely_direct_union.wkb",
+    "parts": 211,
+    "holes": 231,
+    "coordinates": 1369795,
+    "area": 129.49230837035208,
+    "bounds": [
+      -11.589277777778257,
+      8.555944444445668,
+      9.436166666664509,
+      23.94638888888889
+    ]
+  },
+  {
+    "path": "/root/kainji-results-repeat2/repeat-2/rust_sorted_parallel/rust_spatial_reduce_parallel.wkb",
+    "parts": 209,
+    "holes": 805468,
+    "coordinates": 5489557,
+    "area": 129.4923060458418,
+    "bounds": [
+      -11.589277777182547,
+      8.555944441079973,
+      9.436166670811685,
+      23.946388898610948
+    ]
+  }
+]

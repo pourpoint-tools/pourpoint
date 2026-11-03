@@ -1,0 +1,21 @@
+{
+  "candidate": "shapely_batched_union",
+  "status": "success",
+  "stage_timings": {
+    "batches_seconds": 696.0655686099999,
+    "final_union_seconds": 99.84177666399955,
+    "validation_seconds": 1.0886516519994984,
+    "write_seconds": 0.05211460500049725
+  },
+  "candidate_seconds": 797.0482337600006,
+  "peak_rss_mb": 7602.12890625,
+  "is_valid": true,
+  "area": 129.4923083703452,
+  "wkb_file": "/root/kainji-results-repeat2/repeat-2/shapely_batched_union/shapely_batched_union.wkb",
+  "memory_scope": "fresh candidate process through output serialization; excludes external topology check",
+  "input_count": 169770,
+  "read_seconds": 2.191851618000328,
+  "decode_seconds": 5.419639777000157,
+  "total_seconds": 804.6772309049993,
+  "total_scope": "input read through output write; interpreter/import startup recorded by matrix wall clock"
+}
