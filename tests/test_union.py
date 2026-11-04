@@ -10,7 +10,7 @@ def test_materialized_subbasins_keep_physical_addresses_after_closure(tmp_path: 
     with HydroFabric(make_spatial_bundle(tmp_path / "fabric")) as fabric:
         parts = fabric.subbasins([30, 10, 30])
     assert [part.id for part in parts] == [30, 10, 30]
-    assert [part.row for part in parts] == [0, 1, 2]
+    assert [part.table["id"][part.row].as_py() for part in parts] == [30, 10, 30]
     assert [part._source_address for part in parts] == [(0, 0), (0, 1), (0, 0)]
 
 
@@ -131,3 +131,35 @@ def test_merge_groups_by_source_address_without_reordering_parts(
     assert result.area == pytest.approx(3 * 0.25**2 + 0.125 * 0.25)
     assert supplied[1].source is parts[1]
     assert parts[1].wkb == box(1, 1, 1.25, 1.25).wkb
+
+
+def test_subbasins_retain_selected_buffers_without_a_second_gather(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+
+    from pourpoint import vectors
+
+    selected_buffers: set[int] = set()
+    original = vectors.take_rows
+
+    def capture(table: pa.Table, rows: list[int]) -> pa.Table:
+        result = original(table, rows)
+        if "geometry" in table.column_names:
+            selected_buffers.update(
+                buffer.address for chunk in result["geometry"].chunks for buffer in chunk.buffers() if buffer
+            )
+        return result
+
+    monkeypatch.setattr(vectors, "take_rows", capture)
+    with HydroFabric(make_spatial_bundle(tmp_path / "fabric")) as fabric:
+        parts = fabric.subbasins([20, 10, 20])
+    table = parts[0].table
+    assert all(part.table is table for part in parts)
+    assert table.num_rows == 3
+    assert [part.id for part in parts] == [20, 10, 20]
+    assert [part.table["id"][part.row].as_py() for part in parts] == [20, 10, 20]
+    assert [part.attributes["source_value"] for part in parts] == [2000, None, 2000]
+    assert {
+        buffer.address for chunk in table["geometry"].chunks for buffer in chunk.buffers() if buffer
+    } == selected_buffers

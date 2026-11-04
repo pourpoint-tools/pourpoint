@@ -152,16 +152,17 @@ class VectorReader:
         return self._adjacency_bytes + (0 if self._bounds is None else self._bounds.buffer_bytes)
 
     def records(self, ids: Iterable[int], columns: Sequence[str] | None = None) -> pa.Table:
-        return self._addressed_records(ids, columns)[0]
+        table, rows, _ = self._addressed_records(ids, columns)
+        return take_rows(table, rows)
 
     def _addressed_records(
         self, ids: Iterable[int], columns: Sequence[str] | None = None
-    ) -> tuple[pa.Table, list[tuple[int, int]]]:
+    ) -> tuple[pa.Table, list[int], list[tuple[int, int]]]:
         requested = _ids(ids)
         names = _columns(self.schema, columns)
         if not requested:
             self.source.check_artifact(self.family.data)
-            return _empty(self.schema, names), []
+            return _empty(self.schema, names), [], []
         if self._lookup is None:
             family = self.family
             lookup = _IndexedIPC(self.source, self.manifest, family.lookup, family.directory, family.count)
@@ -186,11 +187,16 @@ class VectorReader:
             zip(requested, table["block"].to_pylist(), table["row"].to_pylist(), strict=True)
         ):
             addresses.setdefault(group, []).append((pos, value, row))
-        return self._records(addresses, names), list(
-            zip(table["block"].to_pylist(), table["row"].to_pylist(), strict=True)
-        )
+        selected, rows = self._selected_records(addresses, names)
+        return selected, rows, list(zip(table["block"].to_pylist(), table["row"].to_pylist(), strict=True))
 
     def _records(self, addresses: dict[int, list[tuple[int, int, int]]], names: list[str]) -> pa.Table:
+        table, rows = self._selected_records(addresses, names)
+        return take_rows(table, rows)
+
+    def _selected_records(
+        self, addresses: dict[int, list[tuple[int, int, int]]], names: list[str]
+    ) -> tuple[pa.Table, list[int]]:
         self.source.check_artifact(self.family.data)
         pieces: list[pa.Table] = []
         positions: list[int] = []
@@ -209,8 +215,8 @@ class VectorReader:
             positions.extend(p for p, _, _ in queries)
         self.source.check_artifact(self.family.data)
         if not pieces:
-            return _empty(self.schema, names)
-        return compact_dictionaries(take_rows(pa.concat_tables(pieces), np.argsort(positions).tolist()).select(names))
+            return _empty(self.schema, names), []
+        return compact_dictionaries(pa.concat_tables(pieces).select(names)), np.argsort(positions).tolist()
 
     def candidates(
         self, bounds: BoundingBox, levels: Sequence[int] | None = None, columns: Sequence[str] | None = None
