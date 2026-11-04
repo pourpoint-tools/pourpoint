@@ -152,11 +152,16 @@ class VectorReader:
         return self._adjacency_bytes + (0 if self._bounds is None else self._bounds.buffer_bytes)
 
     def records(self, ids: Iterable[int], columns: Sequence[str] | None = None) -> pa.Table:
+        return self._addressed_records(ids, columns)[0]
+
+    def _addressed_records(
+        self, ids: Iterable[int], columns: Sequence[str] | None = None
+    ) -> tuple[pa.Table, list[tuple[int, int]]]:
         requested = _ids(ids)
         names = _columns(self.schema, columns)
         if not requested:
             self.source.check_artifact(self.family.data)
-            return _empty(self.schema, names)
+            return _empty(self.schema, names), []
         if self._lookup is None:
             family = self.family
             lookup = _IndexedIPC(self.source, self.manifest, family.lookup, family.directory, family.count)
@@ -181,7 +186,9 @@ class VectorReader:
             zip(requested, table["block"].to_pylist(), table["row"].to_pylist(), strict=True)
         ):
             addresses.setdefault(group, []).append((pos, value, row))
-        return self._records(addresses, names)
+        return self._records(addresses, names), list(
+            zip(table["block"].to_pylist(), table["row"].to_pylist(), strict=True)
+        )
 
     def _records(self, addresses: dict[int, list[tuple[int, int, int]]], names: list[str]) -> pa.Table:
         self.source.check_artifact(self.family.data)
