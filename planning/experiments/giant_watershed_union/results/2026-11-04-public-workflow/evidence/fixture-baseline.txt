@@ -1,5 +1,5 @@
-uv run python /Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/planning/experiments/giant_watershed_union/bench_delineate_fixture.py --candidate baseline
-/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/.venv/lib/python3.13/site-packages/rasterio/features.py:381: NotGeoreferencedWarning: Dataset has no geotransform, gcps, or rpcs. The identity matrix will be returned.
+uv run python <home>/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/planning/experiments/giant_watershed_union/bench_delineate_fixture.py --candidate baseline
+<home>/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/.venv/lib/python3.13/site-packages/rasterio/features.py:381: NotGeoreferencedWarning: Dataset has no geotransform, gcps, or rpcs. The identity matrix will be returned.
   _rasterize(
 {
   "measurements": [

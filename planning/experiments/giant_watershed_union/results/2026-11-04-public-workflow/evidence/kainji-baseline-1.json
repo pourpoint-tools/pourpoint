@@ -30,7 +30,7 @@
       },
       "machine": {
         "system": "Darwin",
-        "node": "Nicolass-MacBook-Pro-2.local",
+        "node": "<redacted-host>",
         "release": "24.6.0",
         "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
         "machine": "arm64",
@@ -69,7 +69,7 @@
       },
       "machine": {
         "system": "Darwin",
-        "node": "Nicolass-MacBook-Pro-2.local",
+        "node": "<redacted-host>",
         "release": "24.6.0",
         "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
         "machine": "arm64",
