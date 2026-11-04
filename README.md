@@ -26,7 +26,7 @@ Requires Python 3.13 or later. With [uv](https://docs.astral.sh/uv/), add Pourpo
 to your project.
 
 ```bash
-uv add "pourpoint==0.5.0rc4"
+uv add "pourpoint==0.5.0rc5"
 ```
 
 This is a release candidate of the Python rewrite, available for testing before 0.5.0.
