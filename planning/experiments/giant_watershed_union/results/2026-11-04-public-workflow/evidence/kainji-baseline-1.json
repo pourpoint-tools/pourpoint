@@ -1,0 +1,98 @@
+{
+  "measurements": [
+    {
+      "candidate": "baseline",
+      "repeat": 1,
+      "open_seconds": 0.0015334580093622208,
+      "phase_seconds": {
+        "traverse_seconds": 9.468709500040859,
+        "associations_seconds": 3.060706708114594,
+        "materialize_seconds": 293.6835831659846,
+        "merge_seconds": 600.6734509170055
+      },
+      "workflow_seconds": 906.8865207501221,
+      "workflow_with_open_seconds": 906.8880542081315,
+      "process_peak_gib": 15.15380859375,
+      "river_count": 169805,
+      "part_count": 169770,
+      "retained_results": 1,
+      "materialize_chunk": 0,
+      "id_sha256": "a7bba60cb14605dd233c56f5ca542287482aad70ef7935f6dec69ebf0fc57130",
+      "source": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+      "manifest_sha256": "43420278e7b017c77af62944df631b3bf77a86b38d529309e4404bb57c58ed03",
+      "baseline_revision": "a953638",
+      "implementation_source_sha256": "bc51d7d945d3d512203e0c948162883380d4b43465f9a57e297e702e8e44e0e9",
+      "versions": {
+        "python": "3.13.14",
+        "shapely": "2.2.0",
+        "geos": "3.14.1",
+        "pyarrow": "25.0.1"
+      },
+      "machine": {
+        "system": "Darwin",
+        "node": "<redacted-host>",
+        "release": "24.6.0",
+        "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+        "machine": "arm64",
+        "processor": "arm"
+      },
+      "scope": "river traverse -> associations -> materialized subbasins -> public merge; not delineate",
+      "cache": "existing persistent cache; uncontrolled OS/network caches; same open reader across repeats"
+    },
+    {
+      "candidate": "baseline",
+      "repeat": 2,
+      "open_seconds": 0.0015334580093622208,
+      "phase_seconds": {
+        "traverse_seconds": 4.869359707925469,
+        "associations_seconds": 0.3468184170778841,
+        "materialize_seconds": 11.499387874966487,
+        "merge_seconds": 595.6203060001135
+      },
+      "workflow_seconds": 612.3359199168626,
+      "workflow_with_open_seconds": 612.3359199168626,
+      "process_peak_gib": 15.15380859375,
+      "river_count": 169805,
+      "part_count": 169770,
+      "retained_results": 2,
+      "materialize_chunk": 0,
+      "id_sha256": "a7bba60cb14605dd233c56f5ca542287482aad70ef7935f6dec69ebf0fc57130",
+      "source": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+      "manifest_sha256": "43420278e7b017c77af62944df631b3bf77a86b38d529309e4404bb57c58ed03",
+      "baseline_revision": "a953638",
+      "implementation_source_sha256": "bc51d7d945d3d512203e0c948162883380d4b43465f9a57e297e702e8e44e0e9",
+      "versions": {
+        "python": "3.13.14",
+        "shapely": "2.2.0",
+        "geos": "3.14.1",
+        "pyarrow": "25.0.1"
+      },
+      "machine": {
+        "system": "Darwin",
+        "node": "<redacted-host>",
+        "release": "24.6.0",
+        "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+        "machine": "arm64",
+        "processor": "arm"
+      },
+      "scope": "river traverse -> associations -> materialized subbasins -> public merge; not delineate",
+      "cache": "existing persistent cache; uncontrolled OS/network caches; same open reader across repeats"
+    }
+  ],
+  "input_checks": [
+    {
+      "repeat": 1,
+      "source_id_wkb_sha256": "7ae2d18f5f4c4bc8d28ac71d338bc4c2cfdea03dbfa52a31c80979bb934704b1",
+      "source_table_count": 1,
+      "geometry_buffer_count": 192693,
+      "shared_geometry_buffers_with_previous": 0
+    },
+    {
+      "repeat": 2,
+      "source_id_wkb_sha256": "7ae2d18f5f4c4bc8d28ac71d338bc4c2cfdea03dbfa52a31c80979bb934704b1",
+      "source_table_count": 1,
+      "geometry_buffer_count": 192693,
+      "shared_geometry_buffers_with_previous": 0
+    }
+  ]
+}

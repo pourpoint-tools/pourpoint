@@ -1,0 +1,70 @@
+{
+  "source": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+  "cache": false,
+  "same_manifest_as_prior": true,
+  "observation": {
+    "same_manifest": true,
+    "connectivity": [
+      {
+        "level": 0,
+        "status": "not_supplied"
+      }
+    ],
+    "catchment_relationships": {
+      "data": "catchments-relationships.arrow",
+      "directory": "catchments-relationships-directory.json",
+      "count": 16864998,
+      "batch_rows": 8192,
+      "columns": {
+        "local_river_ids": {
+          "source_domain": "rivers",
+          "target_domain": "rivers",
+          "source_artifact": "local-associations.parquet",
+          "source_column": "catchment_id",
+          "key_column": "river_id",
+          "direction": "reverse"
+        }
+      },
+      "feature_artifacts": {
+        "catchments": {
+          "data": "catchments.parquet",
+          "data_sha256": "946fbfcac288e8b4a718bbace269f79c106909de73f3341efc90fa2bcfd922ef"
+        },
+        "rivers": {
+          "data": "rivers.parquet",
+          "data_sha256": "65429544aced9d71f05c9f71cad6001103c652f2486ffa12d34ac0b6cc98f11b"
+        }
+      },
+      "source_artifacts": [
+        "catchments.arrow",
+        "local-associations.parquet",
+        "manifest.json",
+        "rivers.arrow"
+      ],
+      "connectivity": [
+        {
+          "level": 0,
+          "status": "not_supplied"
+        }
+      ],
+      "connectivity_source": "manifest.json"
+    },
+    "family_identity": {
+      "data": "catchments.parquet",
+      "data_sha256": "946fbfcac288e8b4a718bbace269f79c106909de73f3341efc90fa2bcfd922ef",
+      "lookup": "catchments-lookup.arrow",
+      "directory": "catchments-lookup-directory.json",
+      "count": 16864998,
+      "source_artifact": "catchments.arrow",
+      "rows": 8192,
+      "budget": 8388608,
+      "ordering": "level, 16-bit longitude/latitude Morton center, id",
+      "index_batch_rows": 65536,
+      "source_batch_reads": 922471,
+      "source_decoded_bytes": 7471147677899,
+      "source_logical_bytes": 286594375794,
+      "source_decode_amplification": 26.06871700535099
+    }
+  },
+  "limitation": "Current manifest binding is not verification of all original captured WKB. Measurement reacquires current source records."
+}

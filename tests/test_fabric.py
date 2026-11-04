@@ -35,7 +35,9 @@ def test_materialized_rows_and_relationships_survive_close(tmp_path: Path) -> No
     assert basins[1].attributes["source_value"] is None
     assert network.relationships["upstream_ids"].to_pylist() == [[10]]
     with HydroFabric(source, cache_dir=tmp_path / "cache", offline=True) as reopened:
-        assert reopened.records("catchments", [20, 10, 20]).equals(basins[0].table, check_metadata=True)
+        records = reopened.records("catchments", [20, 10, 20])
+        for row, basin in enumerate(basins):
+            assert records.slice(row, 1).equals(basin.table.slice(basin.row, 1), check_metadata=True)
 
 
 def test_local_associations_preserve_plural_singleton_and_known_empty(tmp_path: Path) -> None:

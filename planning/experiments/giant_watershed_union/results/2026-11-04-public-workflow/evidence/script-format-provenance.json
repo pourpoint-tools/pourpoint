@@ -1,0 +1,5 @@
+{
+  "bench_workflow_measured_script_sha256": "463b67e4610a10a77a9fc032c6c33e5a81abd1cf6503d32527a76fb748feed18",
+  "bench_workflow_final_script_sha256": "c6b558a2660cfa9c40701ef7eedcc3bbe1c2412b63971661fc3015ecfb46a3a3",
+  "difference": "After final baseline timing completed, only the vectors_sha256 and fabric_sha256 expressions were line-wrapped to satisfy Ruff format. Running process already loaded the original script. No measured behavior or production source changed. Historical script hashes remain the hashes of measured versions; final script differs only in whitespace."
+}

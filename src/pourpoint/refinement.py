@@ -21,6 +21,7 @@ from shapely.geometry import MultiPolygon, Point, Polygon, shape
 from shapely.geometry.base import BaseGeometry
 
 from pourpoint._batch import execute, workers
+from pourpoint._union import union_subbasins
 from pourpoint.fabric import HydroFabric
 from pourpoint.features import Attributes, Subbasin
 from pourpoint.rasters import MissingRastersError, RasterCoverageError, RasterGrid, RasterWindow
@@ -200,12 +201,21 @@ def merge(
         groups. An empty outer input returns an empty Polygon, not a list.
         Empty inner groups produce empty Polygons. No source attributes are
         aggregated, and no source access or geometry repair is performed.
+
+    Notes
+    -----
+    Large inputs are unioned in bounded groups, using retained HFX physical
+    addresses when available. Grouping does not change the input sequence or
+    source values. Union workspaces are serialized across threads in this
+    process, with up to two group unions active within a workspace. This bounds
+    simultaneous decoding and union work, not retained caller inputs, outputs
+    or total process memory. Independent processes have independent bounds.
     """
     if not subbasins:
         return Polygon()
     if isinstance(subbasins[0], (Subbasin, SubbasinContribution)):
         parts = cast(Sequence[BasinPart], subbasins)
-        return _polygonal(shapely.union_all([part.geometry for part in parts]))
+        return _polygonal(union_subbasins(parts))
     groups = cast(Sequence[Sequence[BasinPart]], subbasins)
     return [merge(subbasins=group) for group in groups]
 

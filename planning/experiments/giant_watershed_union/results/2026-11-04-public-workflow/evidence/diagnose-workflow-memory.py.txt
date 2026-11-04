@@ -1,0 +1,214 @@
+"""Measure public river selection, materialization and merge; no geometry policy changes.
+
+Run with project ``uv run python``. Credentials stay in the named local AWS profile.
+Validation and WKB writing happen after measured workflow phases.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import os
+import threading
+import pourpoint._union as union_module
+import configparser
+import hashlib
+import json
+import platform
+import resource
+import time
+from pathlib import Path
+
+import pyarrow as pa
+import shapely
+
+import pourpoint.refinement as refinement
+from pourpoint import HydroFabric
+from pourpoint.refinement import _polygonal, merge
+
+BASELINE_REVISION = "a953638"
+
+
+def peak_gib() -> float:
+    value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return value / (1024**3 if platform.system() == "Darwin" else 1024**2)
+
+
+
+def live_rss() -> int:
+    # macOS proc_taskinfo: first uint64 fields are virtual_size/resident_size.
+    library = ctypes.CDLL("/usr/lib/libproc.dylib")
+    buffer = (ctypes.c_uint64 * 12)()
+    count = library.proc_pidinfo(os.getpid(), 4, 0, ctypes.byref(buffer), ctypes.sizeof(buffer))
+    assert count == ctypes.sizeof(buffer), count
+    return int(buffer[1])
+
+
+EVENTS = []
+REPEAT = 0
+
+def checkpoint(stage: str) -> None:
+    event = {"stage": stage, "repeat": REPEAT, "elapsed": time.perf_counter(),
+             "live_rss_bytes": live_rss(), "peak_gib": peak_gib(),
+             "arrow_allocated_bytes": pa.total_allocated_bytes()}
+    EVENTS.append(event)
+    print(json.dumps(event), flush=True)
+
+original_group = union_module._union_group
+original_union = shapely.union_all
+
+def measured_group(parts):
+    result = original_group(parts)
+    checkpoint("group_complete")
+    return result
+
+def measured_union(geometries, *args, **kwargs):
+    final = threading.current_thread() is threading.main_thread()
+    if final: checkpoint("before_final_union")
+    result = original_union(geometries, *args, **kwargs)
+    if final: checkpoint("after_final_union")
+    return result
+
+union_module._union_group = measured_group
+shapely.union_all = measured_union
+
+def main() -> None:
+    global REPEAT
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--provenance", type=Path, required=True)
+    parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--candidate", choices=["baseline", "integrated"], required=True)
+    parser.add_argument("--profile", default="hetzner-pourpoint")
+    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument("--materialize-chunk", type=int, default=0)
+    args = parser.parse_args()
+    provenance = json.loads(args.provenance.read_text())
+    config = configparser.ConfigParser()
+    config.read(Path.home() / ".aws/credentials")
+    profile = config[args.profile]
+    options = {
+        "aws_access_key_id": profile["aws_access_key_id"],
+        "aws_secret_access_key": profile["aws_secret_access_key"],
+        "aws_endpoint": "https://fsn1.your-objectstorage.com",
+        "aws_region": "fsn1",
+    }
+    args.output.mkdir(parents=True, exist_ok=True)
+    retained = []
+    receipts = []
+    start = time.perf_counter()
+    with HydroFabric(provenance["source_url"], storage_options=options, cache_dir=args.cache) as fabric:
+        open_seconds = time.perf_counter() - start
+        manifest = dict(fabric.manifest.declarations)
+        for repeat in range(args.repeats):
+            REPEAT = repeat + 1
+            checkpoint("before_acquisition")
+            phases = {}
+            begin = time.perf_counter()
+            t = begin
+            rivers = fabric.traverse("rivers", [args.seed], relationship="upstream_ids")
+            phases["traverse_seconds"] = time.perf_counter() - t
+            t = time.perf_counter()
+            relations = fabric.relationships("rivers", rivers, columns=["local_catchment_ids"])
+            ids = list(
+                dict.fromkeys(cid for row in relations["local_catchment_ids"].to_pylist() for cid in (row or []))
+            )
+            del relations
+            phases["associations_seconds"] = time.perf_counter() - t
+            t = time.perf_counter()
+            if args.materialize_chunk:
+                parts = [
+                    part
+                    for offset in range(0, len(ids), args.materialize_chunk)
+                    for part in fabric.subbasins(ids[offset : offset + args.materialize_chunk])
+                ]
+            else:
+                parts = fabric.subbasins(ids)
+            phases["materialize_seconds"] = time.perf_counter() - t
+            checkpoint("after_acquisition")
+            tables = {id(part.table): part.table for group, _ in retained for part in group}
+            tables.update({id(part.table): part.table for part in parts})
+            print(json.dumps({"stage":"retained_source_bytes", "repeat":REPEAT,
+                              "unique_table_buffer_bytes":sum(table.get_total_buffer_size() for table in tables.values())}),flush=True)
+
+            print(
+                json.dumps(
+                    {"stage": "materialized", "repeat": repeat + 1, "parts": len(parts), "phase_seconds": phases}
+                ),
+                flush=True,
+            )
+            t = time.perf_counter()
+            if args.candidate == "baseline":
+                geometry = _polygonal(shapely.union_all([part.geometry for part in parts]))
+            else:
+                geometry = merge(subbasins=parts)
+            phases["merge_seconds"] = time.perf_counter() - t
+            checkpoint("after_merge_return")
+            elapsed = time.perf_counter() - begin
+            retained.append((parts, geometry))
+            # Record high water before any serialization or correctness checks.
+            receipt = {
+                "candidate": args.candidate,
+                "repeat": repeat + 1,
+                "open_seconds": open_seconds,
+                "phase_seconds": phases,
+                "workflow_seconds": elapsed,
+                "workflow_with_open_seconds": elapsed + (open_seconds if repeat == 0 else 0),
+                "process_peak_gib": peak_gib(),
+                "river_count": len(rivers),
+                "part_count": len(parts),
+                "retained_results": len(retained),
+                "materialize_chunk": args.materialize_chunk,
+                "id_sha256": hashlib.sha256(json.dumps(ids).encode()).hexdigest(),
+                "source": provenance["source_url"],
+                "manifest_sha256": hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest(),
+                "baseline_revision": BASELINE_REVISION,
+                "implementation_source_sha256": hashlib.sha256(Path(refinement.__file__).read_bytes()).hexdigest(),
+                "versions": {
+                    "python": platform.python_version(),
+                    "shapely": shapely.__version__,
+                    "geos": shapely.geos_version_string,
+                    "pyarrow": pa.__version__,
+                },
+                "machine": platform.uname()._asdict(),
+                "scope": "river traverse -> associations -> materialized subbasins -> public merge; not delineate",
+                "cache": "existing persistent cache; uncontrolled OS/network caches; same open reader across repeats",
+            }
+            receipts.append(receipt)
+            (args.output / "measurement.json").write_text(json.dumps(receipts, indent=2) + "\n")
+            print(json.dumps(receipt), flush=True)
+        # Outputs and input checks are outside measured repeats. Keep every result
+        # alive until all measurement finishes; never drop source parts to lower RSS.
+        (args.output / "memory-events.json").write_text(json.dumps(EVENTS,indent=2)+"\n")
+        checks = []
+        previous_buffers: set[int] = set()
+        for index, (parts, geometry) in enumerate(retained, 1):
+            digest = hashlib.sha256()
+            for part in parts:
+                digest.update(part.id.to_bytes(8, "little"))
+                digest.update(part.wkb)
+            (args.output / f"result-{index}.wkb").write_bytes(shapely.to_wkb(geometry))
+            tables = {id(part.table): part.table for part in parts}
+            buffers = {
+                buffer.address
+                for table in tables.values()
+                for chunk in table["geometry"].chunks
+                for buffer in chunk.buffers()
+                if buffer is not None
+            }
+            checks.append(
+                {
+                    "repeat": index,
+                    "source_id_wkb_sha256": digest.hexdigest(),
+                    "source_table_count": len(tables),
+                    "geometry_buffer_count": len(buffers),
+                    "shared_geometry_buffers_with_previous": len(buffers & previous_buffers),
+                }
+            )
+            previous_buffers = buffers
+        (args.output / "input-checks.json").write_text(json.dumps(checks, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    main()

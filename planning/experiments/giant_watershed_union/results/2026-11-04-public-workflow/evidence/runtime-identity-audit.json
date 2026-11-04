@@ -1,0 +1,31 @@
+{
+  "misattributed_run": "prototype-acquisition (PID1725) actually canonical root baseline after kernel cwd reset; label corrected, not prototype evidence",
+  "corrected_run": "prototype-acquisition-corrected (PID1775), explicit shell cd worktree, native runtime identity receipt checked afterward; source hash snapshot unchanged",
+  "earlier_run_audit": {
+    "tributary-integrated-1": "same tool block os.chdir(wt) then native fixture runs then benchmark launch",
+    "tributary-integrated-2": "same tool block os.chdir(wt) then launch, after restart",
+    "kainji-integrated-1": "same tool block os.chdir(wt) then launch, after parent resume",
+    "memory-diagnostic": "requires pourpoint._union import, absent in canonical root, and launch from worktree before restart; successful import proves integrated package",
+    "initial-acquisition-only": "launch from worktree before restart; canonical source has identical retained acquisition copy behavior, so its role is pre-prototype accounting, not optimized evidence"
+  },
+  "future_rule": "Explicit shell cd in each command plus runtime module path/hash receipt; never infer cwd from restored variables",
+  "script_import_audit": {
+    "diagnose-workflow-memory.py": {
+      "sys_path_modification": false,
+      "sha256": "e5fe5fb7bf5f1c5073e019055c270be795178b3c823bc0434e7f5c83b22f59e8"
+    },
+    "diagnose-retained-sources.py": {
+      "sys_path_modification": false,
+      "sha256": "c10f196a94e30912c11693992f3f0f7d036adeaaeb515ce5ac25d7dda9ee028d"
+    },
+    "diagnose-subbasin-acquisition.py": {
+      "sys_path_modification": false,
+      "sha256": "1e8c3d1fcd83e63afecb31506881146d269a07001ec9290c7419be8fe0ab9327"
+    },
+    "bench_workflow.py": {
+      "sys_path_modification": false,
+      "sha256": "463b67e4610a10a77a9fc032c6c33e5a81abd1cf6503d32527a76fb748feed18"
+    }
+  },
+  "confidence": "Earlier integrated timing launches verified from same-call explicit os.chdir(wt); diagnostic integrated import additionally inferred from absent root _union and no sys.path insertion. New full prototype run carries direct runtime paths/hashes."
+}

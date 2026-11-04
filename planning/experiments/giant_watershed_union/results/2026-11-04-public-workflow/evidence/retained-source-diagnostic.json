@@ -1,0 +1,72 @@
+[
+  {
+    "repeat": 1,
+    "live_rss_bytes": 9155100672,
+    "peak_gib": 8.5263671875,
+    "unique_tables": 1,
+    "table_total_buffer_bytes": 3162243942,
+    "table_logical_bytes": 3161216246,
+    "per_table_column_buffer_bytes": [
+      {
+        "id": 1358160,
+        "level": 339540,
+        "parent_id": 1424508,
+        "source_namespace": 8472232,
+        "source_id": 1983612,
+        "processing_basin": 2700052,
+        "bbox": 2716320,
+        "geometry": 3136259674,
+        "area_km2": 679080,
+        "up_area_km2": 745428,
+        "outlet_lon": 1424508,
+        "outlet_lat": 1424508,
+        "fid": 1358160,
+        "streamID": 1358160
+      }
+    ],
+    "scope": "acquisition only; two complete retained materializations; no union"
+  },
+  {
+    "repeat": 2,
+    "live_rss_bytes": 13880803328,
+    "peak_gib": 12.927505493164062,
+    "unique_tables": 2,
+    "table_total_buffer_bytes": 6324487884,
+    "table_logical_bytes": 6322432492,
+    "per_table_column_buffer_bytes": [
+      {
+        "id": 1358160,
+        "level": 339540,
+        "parent_id": 1424508,
+        "source_namespace": 8472232,
+        "source_id": 1983612,
+        "processing_basin": 2700052,
+        "bbox": 2716320,
+        "geometry": 3136259674,
+        "area_km2": 679080,
+        "up_area_km2": 745428,
+        "outlet_lon": 1424508,
+        "outlet_lat": 1424508,
+        "fid": 1358160,
+        "streamID": 1358160
+      },
+      {
+        "id": 1358160,
+        "level": 339540,
+        "parent_id": 1424508,
+        "source_namespace": 8472232,
+        "source_id": 1983612,
+        "processing_basin": 2700052,
+        "bbox": 2716320,
+        "geometry": 3136259674,
+        "area_km2": 679080,
+        "up_area_km2": 745428,
+        "outlet_lon": 1424508,
+        "outlet_lat": 1424508,
+        "fid": 1358160,
+        "streamID": 1358160
+      }
+    ],
+    "scope": "acquisition only; two complete retained materializations; no union"
+  }
+]

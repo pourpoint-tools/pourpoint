@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, cast
 
 import pyarrow as pa
@@ -99,10 +99,12 @@ class Feature:
         return Attributes(self.table, self.row)
 
 
+@dataclass(frozen=True)
 class Subbasin(Feature):
     """A whole source catchment polygon or multipolygon, not a refined contribution."""
 
     geometry_types = ("Polygon", "MultiPolygon")
+    _source_address: tuple[int, int] | None = field(default=None, init=False, repr=False, compare=False)
 
 
 class River(Feature):

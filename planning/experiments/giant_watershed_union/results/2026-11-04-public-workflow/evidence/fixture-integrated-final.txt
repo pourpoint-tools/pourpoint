@@ -1,0 +1,41 @@
+<home>/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/.venv/lib/python3.13/site-packages/rasterio/features.py:381: NotGeoreferencedWarning: Dataset has no geotransform, gcps, or rpcs. The identity matrix will be returned.
+  _rasterize(
+{
+  "measurements": [
+    {
+      "candidate": "integrated",
+      "refine": false,
+      "n_jobs": 1,
+      "repeats": 10,
+      "seconds": 0.027566291857510805,
+      "retained_batch_results": 10
+    },
+    {
+      "candidate": "integrated",
+      "refine": false,
+      "n_jobs": 2,
+      "repeats": 10,
+      "seconds": 0.06812058296054602,
+      "retained_batch_results": 20
+    },
+    {
+      "candidate": "integrated",
+      "refine": true,
+      "n_jobs": 1,
+      "repeats": 10,
+      "seconds": 0.05712683289311826,
+      "retained_batch_results": 30
+    },
+    {
+      "candidate": "integrated",
+      "refine": true,
+      "n_jobs": 2,
+      "repeats": 10,
+      "seconds": 0.15502008306793869,
+      "retained_batch_results": 40
+    }
+  ],
+  "independent_expected_geometry": "box(1,1,1.25,1.25)",
+  "valid_and_equal": true,
+  "materialized_merge_after_close": true
+}

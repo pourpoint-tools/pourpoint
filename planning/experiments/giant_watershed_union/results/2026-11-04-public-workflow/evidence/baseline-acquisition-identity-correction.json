@@ -1,0 +1,84 @@
+[
+  {
+    "repeat": 1,
+    "live_rss_bytes": 9138995200,
+    "peak_gib": 8.532684326171875,
+    "unique_tables": 1,
+    "arrow_allocated_bytes": 3258602176,
+    "arrow_memory_pool": "mimalloc",
+    "fabric_buffers": {
+      "source": 0,
+      "vectors": 8388528
+    },
+    "table_total_buffer_bytes": 3162243942,
+    "table_logical_bytes": 3161216246,
+    "per_table_column_buffer_bytes": [
+      {
+        "id": 1358160,
+        "level": 339540,
+        "parent_id": 1424508,
+        "source_namespace": 8472232,
+        "source_id": 1983612,
+        "processing_basin": 2700052,
+        "bbox": 2716320,
+        "geometry": 3136259674,
+        "area_km2": 679080,
+        "up_area_km2": 745428,
+        "outlet_lon": 1424508,
+        "outlet_lat": 1424508,
+        "fid": 1358160,
+        "streamID": 1358160
+      }
+    ],
+    "scope": "acquisition only; two complete retained materializations; no union"
+  },
+  {
+    "repeat": 2,
+    "live_rss_bytes": 8211185664,
+    "peak_gib": 9.416091918945312,
+    "unique_tables": 2,
+    "arrow_allocated_bytes": 6517204288,
+    "arrow_memory_pool": "mimalloc",
+    "fabric_buffers": {
+      "source": 0,
+      "vectors": 8388528
+    },
+    "table_total_buffer_bytes": 6324487884,
+    "table_logical_bytes": 6322432492,
+    "per_table_column_buffer_bytes": [
+      {
+        "id": 1358160,
+        "level": 339540,
+        "parent_id": 1424508,
+        "source_namespace": 8472232,
+        "source_id": 1983612,
+        "processing_basin": 2700052,
+        "bbox": 2716320,
+        "geometry": 3136259674,
+        "area_km2": 679080,
+        "up_area_km2": 745428,
+        "outlet_lon": 1424508,
+        "outlet_lat": 1424508,
+        "fid": 1358160,
+        "streamID": 1358160
+      },
+      {
+        "id": 1358160,
+        "level": 339540,
+        "parent_id": 1424508,
+        "source_namespace": 8472232,
+        "source_id": 1983612,
+        "processing_basin": 2700052,
+        "bbox": 2716320,
+        "geometry": 3136259674,
+        "area_km2": 679080,
+        "up_area_km2": 745428,
+        "outlet_lon": 1424508,
+        "outlet_lat": 1424508,
+        "fid": 1358160,
+        "streamID": 1358160
+      }
+    ],
+    "scope": "acquisition only; two complete retained materializations; no union"
+  }
+]

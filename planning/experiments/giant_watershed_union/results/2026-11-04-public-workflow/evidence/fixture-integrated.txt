@@ -1,0 +1,42 @@
+uv run python <home>/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/planning/experiments/giant_watershed_union/bench_delineate_fixture.py --candidate integrated
+<home>/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/.venv/lib/python3.13/site-packages/rasterio/features.py:381: NotGeoreferencedWarning: Dataset has no geotransform, gcps, or rpcs. The identity matrix will be returned.
+  _rasterize(
+{
+  "measurements": [
+    {
+      "candidate": "integrated",
+      "refine": false,
+      "n_jobs": 1,
+      "repeats": 10,
+      "seconds": 0.017840374959632754,
+      "retained_batch_results": 10
+    },
+    {
+      "candidate": "integrated",
+      "refine": false,
+      "n_jobs": 2,
+      "repeats": 10,
+      "seconds": 0.06700116698630154,
+      "retained_batch_results": 20
+    },
+    {
+      "candidate": "integrated",
+      "refine": true,
+      "n_jobs": 1,
+      "repeats": 10,
+      "seconds": 0.05129495798610151,
+      "retained_batch_results": 30
+    },
+    {
+      "candidate": "integrated",
+      "refine": true,
+      "n_jobs": 2,
+      "repeats": 10,
+      "seconds": 0.12893691705539823,
+      "retained_batch_results": 40
+    }
+  ],
+  "independent_expected_geometry": "box(1,1,1.25,1.25)",
+  "valid_and_equal": true,
+  "materialized_merge_after_close": true
+}

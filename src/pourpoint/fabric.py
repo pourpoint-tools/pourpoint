@@ -230,8 +230,11 @@ class HydroFabric:
         Uses ``records`` ID validation and missing-ID behavior. Geometry is
         decoded only when a feature's ``geometry`` property is accessed.
         """
-        table = self.records("catchments", ids)
-        return [Subbasin(table, row) for row in range(table.num_rows)]
+        table, rows, addresses = self._reader("catchments")._addressed_records(ids)
+        parts = [Subbasin(table, row) for row in rows]
+        for part, address in zip(parts, addresses, strict=True):
+            object.__setattr__(part, "_source_address", address)
+        return parts
 
     def nodes(self, ids: Sequence[int]) -> list[SourceNode]:
         """Materialize source nodes in ID order, with ``records`` ID semantics."""
