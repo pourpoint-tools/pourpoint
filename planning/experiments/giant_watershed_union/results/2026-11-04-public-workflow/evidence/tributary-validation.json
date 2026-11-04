@@ -1,0 +1,106 @@
+[
+  {
+    "candidate": "tributary-baseline-1",
+    "repeat": 1,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-1.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  },
+  {
+    "candidate": "tributary-baseline-1",
+    "repeat": 2,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-2.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  },
+  {
+    "candidate": "tributary-baseline-2",
+    "repeat": 1,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-1.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  },
+  {
+    "candidate": "tributary-baseline-2",
+    "repeat": 2,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-2.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  },
+  {
+    "candidate": "tributary-integrated-1",
+    "repeat": 1,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-1.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  },
+  {
+    "candidate": "tributary-integrated-1",
+    "repeat": 2,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-2.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  },
+  {
+    "candidate": "tributary-integrated-2",
+    "repeat": 1,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-1.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  },
+  {
+    "candidate": "tributary-integrated-2",
+    "repeat": 2,
+    "exit_code": 0,
+    "result": {
+      "baseline_valid": true,
+      "candidate_valid": true,
+      "topologically_equal": true,
+      "baseline": "result-1.wkb",
+      "candidate": "result-2.wkb",
+      "limitation": "Direct GEOS is a comparator, not an independent correctness oracle."
+    }
+  }
+]

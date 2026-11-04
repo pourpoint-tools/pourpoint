@@ -1,0 +1,16 @@
+[
+  {
+    "repeat": 1,
+    "source_id_wkb_sha256": "7ae2d18f5f4c4bc8d28ac71d338bc4c2cfdea03dbfa52a31c80979bb934704b1",
+    "source_table_count": 1,
+    "geometry_buffer_count": 192693,
+    "shared_geometry_buffers_with_previous": 0
+  },
+  {
+    "repeat": 2,
+    "source_id_wkb_sha256": "7ae2d18f5f4c4bc8d28ac71d338bc4c2cfdea03dbfa52a31c80979bb934704b1",
+    "source_table_count": 1,
+    "geometry_buffer_count": 192693,
+    "shared_geometry_buffers_with_previous": 0
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "pid": 5477,
+  "elapsed_at_sample": "29:06",
+  "cpu_percent": 100.0,
+  "rss_kib": 9127760,
+  "main_thread_samples": 819,
+  "chunked_array_cpu_assert_samples": 807,
+  "observed_stack": "ChunkedArray.__getitem__ -> _assert_cpu -> is_cpu -> arrow::ChunkedArray::device_types",
+  "stage": "after both measured calls; result-1.wkb saved, result-2/input checks pending",
+  "interpretation": "Source ID/WKB checks repeatedly index fragmented baseline Arrow columns; delay is outside measurement. No benchmark code or running process changed."
+}

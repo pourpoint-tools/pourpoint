@@ -1,0 +1,96 @@
+{
+  "measurements": [
+    {
+      "candidate": "baseline",
+      "repeat": 1,
+      "open_seconds": 0.004328625043854117,
+      "phase_seconds": {
+        "traverse_seconds": 0.5927089580800384,
+        "associations_seconds": 0.03279024991206825,
+        "materialize_seconds": 1.2201791249681264,
+        "merge_seconds": 56.87381662498228
+      },
+      "workflow_seconds": 58.71952854213305,
+      "workflow_with_open_seconds": 58.7238571671769,
+      "process_peak_gib": 3.83294677734375,
+      "river_count": 19529,
+      "part_count": 19527,
+      "retained_results": 1,
+      "materialize_chunk": 0,
+      "id_sha256": "95c64026dd252d306cb3f440c0a54e1f07302776387a8b2235c14b8d6e5a295e",
+      "source": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+      "manifest_sha256": "43420278e7b017c77af62944df631b3bf77a86b38d529309e4404bb57c58ed03",
+      "baseline_revision": "a953638",
+      "versions": {
+        "python": "3.13.14",
+        "shapely": "2.2.0",
+        "geos": "3.14.1",
+        "pyarrow": "25.0.1"
+      },
+      "machine": {
+        "system": "Darwin",
+        "node": "Nicolass-MacBook-Pro-2.local",
+        "release": "24.6.0",
+        "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+        "machine": "arm64",
+        "processor": "arm"
+      },
+      "scope": "river traverse -> associations -> materialized subbasins -> public merge; not delineate",
+      "cache": "existing persistent cache; uncontrolled OS/network caches; same open reader across repeats"
+    },
+    {
+      "candidate": "baseline",
+      "repeat": 2,
+      "open_seconds": 0.004328625043854117,
+      "phase_seconds": {
+        "traverse_seconds": 0.00651374994777143,
+        "associations_seconds": 0.048383374931290746,
+        "materialize_seconds": 1.1178502088878304,
+        "merge_seconds": 56.987175582908094
+      },
+      "workflow_seconds": 58.159960167016834,
+      "workflow_with_open_seconds": 58.159960167016834,
+      "process_peak_gib": 4.596160888671875,
+      "river_count": 19529,
+      "part_count": 19527,
+      "retained_results": 2,
+      "materialize_chunk": 0,
+      "id_sha256": "95c64026dd252d306cb3f440c0a54e1f07302776387a8b2235c14b8d6e5a295e",
+      "source": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+      "manifest_sha256": "43420278e7b017c77af62944df631b3bf77a86b38d529309e4404bb57c58ed03",
+      "baseline_revision": "a953638",
+      "versions": {
+        "python": "3.13.14",
+        "shapely": "2.2.0",
+        "geos": "3.14.1",
+        "pyarrow": "25.0.1"
+      },
+      "machine": {
+        "system": "Darwin",
+        "node": "Nicolass-MacBook-Pro-2.local",
+        "release": "24.6.0",
+        "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+        "machine": "arm64",
+        "processor": "arm"
+      },
+      "scope": "river traverse -> associations -> materialized subbasins -> public merge; not delineate",
+      "cache": "existing persistent cache; uncontrolled OS/network caches; same open reader across repeats"
+    }
+  ],
+  "input_checks": [
+    {
+      "repeat": 1,
+      "source_id_wkb_sha256": "0ec6f948b77ff87fb0e4152e56713dfe12ad6d93a2c2545e157121c191719db8",
+      "source_table_count": 1,
+      "geometry_buffer_count": 16158,
+      "shared_geometry_buffers_with_previous": 0
+    },
+    {
+      "repeat": 2,
+      "source_id_wkb_sha256": "0ec6f948b77ff87fb0e4152e56713dfe12ad6d93a2c2545e157121c191719db8",
+      "source_table_count": 1,
+      "geometry_buffer_count": 16158,
+      "shared_geometry_buffers_with_previous": 0
+    }
+  ]
+}

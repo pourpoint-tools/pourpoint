@@ -1,0 +1,3 @@
+vm.swapusage: total = 21504.00M  used = 20658.50M  free = 845.50M  (encrypted)
+The system has 68719476736 (4194304 pages with a page size of 16384).
+System-wide memory free percentage: 90%

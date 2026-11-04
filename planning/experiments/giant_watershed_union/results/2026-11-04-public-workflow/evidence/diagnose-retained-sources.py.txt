@@ -1,0 +1,114 @@
+"""Measure public river selection, materialization and merge; no geometry policy changes.
+
+Run with project ``uv run python``. Credentials stay in the named local AWS profile.
+Validation and WKB writing happen after measured workflow phases.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import os
+import configparser
+import hashlib
+import json
+import platform
+import resource
+import time
+from pathlib import Path
+
+import pyarrow as pa
+import shapely
+
+import pourpoint.refinement as refinement
+from pourpoint import HydroFabric
+from pourpoint.refinement import _polygonal, merge
+
+BASELINE_REVISION = "a953638"
+
+
+def peak_gib() -> float:
+    value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return value / (1024**3 if platform.system() == "Darwin" else 1024**2)
+
+
+
+def live_rss() -> int:
+    # macOS proc_taskinfo: first uint64 fields are virtual_size/resident_size.
+    library = ctypes.CDLL("/usr/lib/libproc.dylib")
+    buffer = (ctypes.c_uint64 * 12)()
+    count = library.proc_pidinfo(os.getpid(), 4, 0, ctypes.byref(buffer), ctypes.sizeof(buffer))
+    assert count == ctypes.sizeof(buffer), count
+    return int(buffer[1])
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--provenance", type=Path, required=True)
+    parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--candidate", choices=["baseline", "integrated"], required=True)
+    parser.add_argument("--profile", default="hetzner-pourpoint")
+    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument("--materialize-chunk", type=int, default=0)
+    args = parser.parse_args()
+    provenance = json.loads(args.provenance.read_text())
+    config = configparser.ConfigParser()
+    config.read(Path.home() / ".aws/credentials")
+    profile = config[args.profile]
+    options = {
+        "aws_access_key_id": profile["aws_access_key_id"],
+        "aws_secret_access_key": profile["aws_secret_access_key"],
+        "aws_endpoint": "https://fsn1.your-objectstorage.com",
+        "aws_region": "fsn1",
+    }
+    args.output.mkdir(parents=True, exist_ok=True)
+    retained = []
+    receipts = []
+    start = time.perf_counter()
+    with HydroFabric(provenance["source_url"], storage_options=options, cache_dir=args.cache) as fabric:
+        open_seconds = time.perf_counter() - start
+        manifest = dict(fabric.manifest.declarations)
+        for repeat in range(args.repeats):
+            phases = {}
+            begin = time.perf_counter()
+            t = begin
+            rivers = fabric.traverse("rivers", [args.seed], relationship="upstream_ids")
+            phases["traverse_seconds"] = time.perf_counter() - t
+            t = time.perf_counter()
+            relations = fabric.relationships("rivers", rivers, columns=["local_catchment_ids"])
+            ids = list(
+                dict.fromkeys(cid for row in relations["local_catchment_ids"].to_pylist() for cid in (row or []))
+            )
+            del relations
+            phases["associations_seconds"] = time.perf_counter() - t
+            t = time.perf_counter()
+            if args.materialize_chunk:
+                parts = [
+                    part
+                    for offset in range(0, len(ids), args.materialize_chunk)
+                    for part in fabric.subbasins(ids[offset : offset + args.materialize_chunk])
+                ]
+            else:
+                parts = fabric.subbasins(ids)
+            phases["materialize_seconds"] = time.perf_counter() - t
+            print(
+                json.dumps(
+                    {"stage": "materialized", "repeat": repeat + 1, "parts": len(parts), "phase_seconds": phases}
+                ),
+                flush=True,
+            )
+            retained.append(parts)
+            tables = {id(part.table):part.table for group in retained for part in group}
+            receipt = {"repeat":repeat + 1, "live_rss_bytes":live_rss(), "peak_gib":peak_gib(),
+                       "unique_tables":len(tables),
+                       "table_total_buffer_bytes":sum(table.get_total_buffer_size() for table in tables.values()),
+                       "table_logical_bytes":sum(table.nbytes for table in tables.values()),
+                       "per_table_column_buffer_bytes":[{name:table[name].get_total_buffer_size() for name in table.column_names} for table in tables.values()],
+                       "scope":"acquisition only; two complete retained materializations; no union"}
+            receipts.append(receipt)
+            print(json.dumps(receipt),flush=True)
+        (args.output / "retained-source-diagnostic.json").write_text(json.dumps(receipts,indent=2)+"\n")
+
+if __name__ == "__main__":
+    main()

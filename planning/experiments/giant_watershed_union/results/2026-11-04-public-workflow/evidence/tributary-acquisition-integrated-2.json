@@ -1,0 +1,106 @@
+{
+  "measurements": [
+    {
+      "candidate": "integrated",
+      "repeat": 1,
+      "open_seconds": 0.0008919578976929188,
+      "phase_seconds": {
+        "traverse_seconds": 0.6024353748653084,
+        "associations_seconds": 0.03239600011147559,
+        "materialize_seconds": 1.2347941661719233,
+        "merge_seconds": 31.046013915911317
+      },
+      "workflow_seconds": 32.91570487502031,
+      "workflow_with_open_seconds": 32.916596832918,
+      "process_peak_gib": 2.993377685546875,
+      "river_count": 19529,
+      "part_count": 19527,
+      "retained_results": 1,
+      "materialize_chunk": 0,
+      "id_sha256": "95c64026dd252d306cb3f440c0a54e1f07302776387a8b2235c14b8d6e5a295e",
+      "source": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+      "manifest_sha256": "43420278e7b017c77af62944df631b3bf77a86b38d529309e4404bb57c58ed03",
+      "baseline_revision": "a953638",
+      "runtime_module": "/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/src/pourpoint/refinement.py",
+      "working_directory": "/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union",
+      "vectors_sha256": "1f4641472f4f7b64c198df9240ef06ac432de3820faf1977428aa895a0a42e18",
+      "fabric_sha256": "363719b8c3f1c16ca5aa32167260a634d60c190784eea62c951e0f2ab911cad0",
+      "implementation_source_sha256": "db3b3839279114ee11d25f27e429c4fc058f463b8816f8fc8cc3c826c751f611",
+      "versions": {
+        "python": "3.13.14",
+        "shapely": "2.2.0",
+        "geos": "3.14.1",
+        "pyarrow": "25.0.1"
+      },
+      "machine": {
+        "system": "Darwin",
+        "node": "Nicolass-MacBook-Pro-2.local",
+        "release": "24.6.0",
+        "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+        "machine": "arm64",
+        "processor": "arm"
+      },
+      "scope": "river traverse -> associations -> materialized subbasins -> public merge; not delineate",
+      "cache": "existing persistent cache; uncontrolled OS/network caches; same open reader across repeats"
+    },
+    {
+      "candidate": "integrated",
+      "repeat": 2,
+      "open_seconds": 0.0008919578976929188,
+      "phase_seconds": {
+        "traverse_seconds": 0.006335374899208546,
+        "associations_seconds": 0.035792458802461624,
+        "materialize_seconds": 1.1669512500520796,
+        "merge_seconds": 31.032093167072162
+      },
+      "workflow_seconds": 32.24122204189189,
+      "workflow_with_open_seconds": 32.24122204189189,
+      "process_peak_gib": 3.747039794921875,
+      "river_count": 19529,
+      "part_count": 19527,
+      "retained_results": 2,
+      "materialize_chunk": 0,
+      "id_sha256": "95c64026dd252d306cb3f440c0a54e1f07302776387a8b2235c14b8d6e5a295e",
+      "source": "s3://pourpoint-hfx/tdx/hfx-0.4.0/NGA-TDX-Hydro-20230126-full62-20261027/",
+      "manifest_sha256": "43420278e7b017c77af62944df631b3bf77a86b38d529309e4404bb57c58ed03",
+      "baseline_revision": "a953638",
+      "runtime_module": "/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union/src/pourpoint/refinement.py",
+      "working_directory": "/Users/nicolaslazaro/Desktop/work/pourpoint/.worktrees/visions/effort-195-bounded-spatial-union",
+      "vectors_sha256": "1f4641472f4f7b64c198df9240ef06ac432de3820faf1977428aa895a0a42e18",
+      "fabric_sha256": "363719b8c3f1c16ca5aa32167260a634d60c190784eea62c951e0f2ab911cad0",
+      "implementation_source_sha256": "db3b3839279114ee11d25f27e429c4fc058f463b8816f8fc8cc3c826c751f611",
+      "versions": {
+        "python": "3.13.14",
+        "shapely": "2.2.0",
+        "geos": "3.14.1",
+        "pyarrow": "25.0.1"
+      },
+      "machine": {
+        "system": "Darwin",
+        "node": "Nicolass-MacBook-Pro-2.local",
+        "release": "24.6.0",
+        "version": "Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:44 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_ARM64_T6041",
+        "machine": "arm64",
+        "processor": "arm"
+      },
+      "scope": "river traverse -> associations -> materialized subbasins -> public merge; not delineate",
+      "cache": "existing persistent cache; uncontrolled OS/network caches; same open reader across repeats"
+    }
+  ],
+  "input_checks": [
+    {
+      "repeat": 1,
+      "source_id_wkb_sha256": "0ec6f948b77ff87fb0e4152e56713dfe12ad6d93a2c2545e157121c191719db8",
+      "source_table_count": 1,
+      "geometry_buffer_count": 231,
+      "shared_geometry_buffers_with_previous": 0
+    },
+    {
+      "repeat": 2,
+      "source_id_wkb_sha256": "0ec6f948b77ff87fb0e4152e56713dfe12ad6d93a2c2545e157121c191719db8",
+      "source_table_count": 1,
+      "geometry_buffer_count": 231,
+      "shared_geometry_buffers_with_previous": 0
+    }
+  ]
+}
