@@ -38,11 +38,17 @@ def normalize_direction(
 ) -> npt.NDArray[np.int8]:
     codes = {
         "esri": (1, 2, 4, 8, 16, 32, 64, 128),
+        "merit": (1, 2, 4, 8, 16, 32, 64, 128),
         "taudem": (1, 8, 7, 6, 5, 4, 3, 2),
         "grass": (8, 7, 6, 5, 4, 3, 2, 1),
     }[encoding]
     selected = values[valid].astype(np.int16)
-    allowed = (*codes, 0, *(-v for v in codes)) if encoding == "grass" else codes
+    if encoding == "grass":
+        allowed: tuple[int, ...] = (*codes, 0, *(-v for v in codes))
+    elif encoding == "merit":
+        allowed = (*codes, 0, -1 if values.dtype.kind == "i" else 255)
+    else:
+        allowed = codes
     if np.any(~np.isin(selected, allowed)):
         raise ValueError("invalid consumed direction code")
     result = np.zeros(values.shape, dtype=np.int8)
@@ -147,7 +153,10 @@ class RasterWindow:
         Read extent and full source grid; its row/column offsets locate these
         arrays within that grid.
     raw_direction
-        Original encoded direction values when retained, otherwise ``None``.
+        Original encoded direction values and source dtype (``uint8`` or
+        ``int8``) when retained, otherwise ``None``. Preserves distinctions
+        collapsed into normalized terminal ``0`` (such as MERIT river mouth
+        ``0`` versus inland depression ``255`` or ``-1``).
     direction_nodata, accumulation_nodata
         Source header nodata values when retained, otherwise ``None``.
 
@@ -186,7 +195,7 @@ class _Declaration:
     direction: _Reference
     accumulation: _Reference
     crs: CRS
-    encoding: Literal["esri", "taudem", "grass"]
+    encoding: Literal["esri", "merit", "taudem", "grass"]
     units: Literal["cells", "km2"]
 
     @classmethod
@@ -201,7 +210,7 @@ class _Declaration:
             set(data) != {"crs", "flow_dir_encoding", "flow_acc_units"}
             or not isinstance(crs, str)
             or re.fullmatch(r"EPSG:[1-9][0-9]*", crs) is None
-            or encoding not in ("esri", "taudem", "grass")
+            or encoding not in ("esri", "merit", "taudem", "grass")
             or units not in ("cells", "km2")
             or set(artifacts) != {"flow_dir", "flow_acc"}
         ):
@@ -219,7 +228,7 @@ class _Declaration:
             artifacts["flow_dir"],
             artifacts["flow_acc"],
             CRS.from_string(crs),
-            cast(Literal["esri", "taudem", "grass"], encoding),
+            cast(Literal["esri", "merit", "taudem", "grass"], encoding),
             cast(Literal["cells", "km2"], units),
         )
 
@@ -468,8 +477,10 @@ class RasterReader:
         Returns
         -------
         RasterWindow
-            Caller-owned native-grid arrays. Direction codes are normalized;
-            accumulation values retain their source dtype and units.
+            Caller-owned native-grid arrays. Direction codes declared as
+            ``esri``, ``merit``, ``taudem`` or ``grass`` are normalized, while
+            ``raw_direction`` retains original source values and dtype.
+            Accumulation values retain their source dtype and units.
 
         Raises
         ------

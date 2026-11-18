@@ -25,6 +25,7 @@ from pourpoint.storage import Source
     ("encoding", "values"),
     [
         ("esri", [1, 2, 4, 8, 16, 32, 64, 128]),
+        ("merit", [1, 2, 4, 8, 16, 32, 64, 128]),
         ("taudem", [1, 8, 7, 6, 5, 4, 3, 2]),
         ("grass", [8, 7, 6, 5, 4, 3, 2, 1]),
     ],
@@ -43,10 +44,33 @@ def test_signed_terminal_and_header_nodata() -> None:
         normalize_direction(values, np.ones_like(valid), "grass")
 
 
-@pytest.mark.parametrize(("encoding", "value"), [("esri", 3), ("taudem", 0), ("grass", 9)])
+@pytest.mark.parametrize(
+    ("encoding", "value"),
+    [("esri", 0), ("esri", 3), ("esri", 255), ("merit", 3), ("merit", 247), ("taudem", 0), ("grass", 9)],
+)
 def test_invalid_consumed_direction(encoding: str, value: int) -> None:
     with pytest.raises(ValueError, match="direction"):
         normalize_direction(np.array([[value]], dtype="uint8"), np.ones((1, 1), dtype=bool), encoding)
+
+
+def test_merit_terminals_and_signed_constraints() -> None:
+    unsigned_values = np.array([[0, 255, 247, 1, 128]], dtype="uint8")
+    unsigned_valid = np.array([[True, True, False, True, True]])
+    unsigned_actual = normalize_direction(unsigned_values, unsigned_valid, "merit")
+    np.testing.assert_array_equal(unsigned_actual, [[0, 0, 0, 1, 8]])
+    assert unsigned_actual.dtype == np.int8
+
+    signed_values = np.array([[0, -1, -9, 1, 64]], dtype="int8")
+    signed_valid = np.array([[True, True, False, True, True]])
+    signed_actual = normalize_direction(signed_values, signed_valid, "merit")
+    np.testing.assert_array_equal(signed_actual, [[0, 0, 0, 1, 7]])
+    assert signed_actual.dtype == np.int8
+
+    for invalid in (-128, -2):
+        with pytest.raises(ValueError, match="direction"):
+            normalize_direction(np.array([[invalid]], dtype="int8"), np.ones((1, 1), dtype=bool), "merit")
+    with pytest.raises(ValueError, match="direction"):
+        normalize_direction(np.array([[-1]], dtype="int8"), np.ones((1, 1), dtype=bool), "esri")
 
 
 def test_native_window_precision_masks_and_lifetime(spatial_hfx: Path) -> None:
@@ -540,3 +564,61 @@ def test_missing_raster_header_bytes_fail_cleanly(spatial_hfx: Path) -> None:
             reader.prepare((0, 0, 1, 1))
     with Source(spatial_hfx) as source, RasterReader(source, manifest) as reader:
         np.testing.assert_array_equal(reader.read(reader.prepare((0, 0, 1, 1))).direction, [[3]])
+
+
+def test_merit_window_raw_values_and_header_nodata_precedence(spatial_hfx: Path, tmp_path: Path) -> None:
+    from conftest import refresh_fingerprint
+    from spatial_fixture import make_spatial_bundle
+
+    add_pair(
+        spatial_hfx,
+        encoding="merit",
+        direction=np.array([[1, 128, 0, 255, 247]], dtype="uint8"),
+        accumulation=np.array([[10.5, 20.0, 50.0, 30.0, -999.0]], dtype="float32"),
+        transform=from_origin(0, 1, 1, 1),
+        direction_nodata=247,
+    )
+    with HydroFabric(spatial_hfx, cache=False) as data:
+        assert not data._vectors
+        assert not any(name.endswith(".tif") for name in data._source._files)
+        window = data.rasters.read(data.rasters.prepare((0, 0, 5, 1)))
+        assert not data._vectors
+        assert window.direction.dtype == np.int8
+        np.testing.assert_array_equal(window.direction, [[1, 8, 0, 0, 0]])
+        np.testing.assert_array_equal(window.direction_valid, [[True, True, True, True, False]])
+        assert window.raw_direction is not None
+        assert window.raw_direction.dtype == np.uint8
+        np.testing.assert_array_equal(window.raw_direction, [[1, 128, 0, 255, 247]])
+        assert window.direction_nodata == 247
+
+    with rasterio.open(spatial_hfx / "dir.tif", "r+") as band:
+        band.nodata = 0
+    refresh_fingerprint(spatial_hfx, "dir.tif")
+    with HydroFabric(spatial_hfx, cache=False) as data:
+        window = data.rasters.read(data.rasters.prepare((0, 0, 4, 1)))
+        np.testing.assert_array_equal(window.direction_valid, [[True, True, False, True]])
+        np.testing.assert_array_equal(window.direction, [[1, 8, 0, 0]])
+        assert window.raw_direction is not None
+        np.testing.assert_array_equal(window.raw_direction, [[1, 128, 0, 255]])
+        with pytest.raises(ValueError, match="direction"):
+            data.rasters.read(data.rasters.prepare((4, 0, 5, 1)))
+
+    signed_bundle = make_spatial_bundle(tmp_path / "signed")
+    add_pair(
+        signed_bundle,
+        encoding="merit",
+        direction=np.array([[1, 64, 0, -1, -9, -128]], dtype="int8"),
+        accumulation=np.ones((1, 6), dtype="float32"),
+        transform=from_origin(0, 1, 1, 1),
+        direction_nodata=-9,
+    )
+    with HydroFabric(signed_bundle, cache=False) as data:
+        signed_window = data.rasters.read(data.rasters.prepare((0, 0, 5, 1)))
+        assert signed_window.direction.dtype == np.int8
+        np.testing.assert_array_equal(signed_window.direction, [[1, 7, 0, 0, 0]])
+        np.testing.assert_array_equal(signed_window.direction_valid, [[True, True, True, True, False]])
+        assert signed_window.raw_direction is not None
+        assert signed_window.raw_direction.dtype == np.int8
+        np.testing.assert_array_equal(signed_window.raw_direction, [[1, 64, 0, -1, -9]])
+        with pytest.raises(ValueError, match="direction"):
+            data.rasters.read(data.rasters.prepare((5, 0, 6, 1)))

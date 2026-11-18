@@ -171,3 +171,55 @@ def test_three_by_three_ties_choose_first_source_row_then_column(tmp_path: Path)
         result = refine(fabric=fabric, footprint=box(0, 0, 3, 3), target=Point(1.5, 1.5))
     assert (result.outlet_cell.row, result.outlet_cell.col) == (0, 1)
     assert result.footprint.equals(box(1, 2, 2, 3))
+
+
+def test_merit_terminal_outlets_accept_upstream_flow_and_exclude_nodata(tmp_path: Path) -> None:
+    root = make_spatial_bundle(tmp_path / "merit-uint8")
+    path = root / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["auxiliary"] = []
+    path.write_text(json.dumps(manifest))
+    direction = np.array([[1, 0, 247, 16], [128, 255, 16, 64]], dtype="uint8")
+    accumulation = np.array([[10, 50, 999, 5], [15, 40, 12, 3]], dtype="int32")
+    add_pair(
+        root,
+        encoding="merit",
+        direction=direction,
+        accumulation=accumulation,
+        transform=from_origin(0, 2, 1, 1),
+        direction_nodata=247,
+    )
+    footprint = box(0, 0, 4, 2)
+    with HydroFabric(root) as fabric:
+        mouth = refine(fabric=fabric, footprint=footprint, target=Point(1.5, 1.5), window_size=3)
+        depression = refine(fabric=fabric, footprint=footprint, target=Point(1.5, 0.5), window_size=1)
+    assert (mouth.outlet_cell.row, mouth.outlet_cell.col) == (0, 1)
+    assert mouth.footprint.equals(box(0, 1, 2, 2).union(box(0, 0, 1, 1)))
+    assert mouth.rasters.direction.window.raw_direction is not None
+    assert mouth.rasters.direction.window.raw_direction.dtype == np.uint8
+    np.testing.assert_array_equal(mouth.rasters.direction.window.raw_direction, direction)
+
+    assert (depression.outlet_cell.row, depression.outlet_cell.col) == (1, 1)
+    assert depression.footprint.equals(box(1, 0, 3, 1))
+
+    signed = make_spatial_bundle(tmp_path / "merit-int8")
+    signed_manifest_path = signed / "manifest.json"
+    signed_manifest = json.loads(signed_manifest_path.read_text())
+    signed_manifest["auxiliary"] = []
+    signed_manifest_path.write_text(json.dumps(signed_manifest))
+    signed_dir = np.array([[1, -1, -9]], dtype="int8")
+    add_pair(
+        signed,
+        encoding="merit",
+        direction=signed_dir,
+        accumulation=np.array([[5, 10, 99]], dtype="int32"),
+        transform=from_origin(0, 1, 1, 1),
+        direction_nodata=-9,
+    )
+    with HydroFabric(signed) as fabric:
+        signed_result = refine(fabric=fabric, footprint=box(0, 0, 3, 1), target=Point(1.5, 0.5), window_size=3)
+    assert (signed_result.outlet_cell.row, signed_result.outlet_cell.col) == (0, 1)
+    assert signed_result.footprint.equals(box(0, 0, 2, 1))
+    assert signed_result.rasters.direction.window.raw_direction is not None
+    assert signed_result.rasters.direction.window.raw_direction.dtype == np.int8
+    np.testing.assert_array_equal(signed_result.rasters.direction.window.raw_direction, signed_dir)

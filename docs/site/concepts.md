@@ -147,8 +147,8 @@ a larger window can select a different branch near a junction. See
 The **flow-direction raster** records which neighbouring cell receives each
 cell's flow. Pourpoint currently supports the D8 model, in which that neighbour
 is one of the eight surrounding cells. Datasets can encode those eight directions
-with different numbers; Pourpoint supports ESRI, TauDEM and unsigned or signed
-GRASS encodings. See [raster encodings](rasters.md#results-and-semantics).
+with different numbers; Pourpoint supports ESRI, MERIT, TauDEM and unsigned or
+signed GRASS encodings. See [raster encodings](rasters.md#results-and-semantics).
 
 Let $d(c)$ denote the downstream cell receiving flow from cell $c$, when its
 direction defines one. For example, $d(a)=b$ means that cell $a$ drains directly
