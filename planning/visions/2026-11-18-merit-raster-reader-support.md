@@ -27,6 +27,11 @@ this is another direction encoding, not a new storage representation.
   MERIT rasters is nodata because its header declares it, not because `247`
   is a universal sentinel. Mask-false normalized payloads remain zero and
   must not be mistaken for valid terminal cells.
+- Support the specified signed terminal `-1` without inventing signed neighbor
+  aliases. The HFX table lists northeast as `128`, which `int8` cannot represent;
+  it does not define `-128` as an alias. Do not silently reinterpret it or claim
+  complete signed-source neighbor coverage. Any broader signed representation
+  clarification belongs in HFX, not an implicit reader extension.
 - Reject invalid consumed direction codes. Preserve existing ESRI, TauDEM
   and GRASS behavior; do not broaden ESRI to silently accept MERIT terminals.
 - Preserve native grids, accumulation values and units, raw direction values,
