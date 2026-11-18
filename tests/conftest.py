@@ -43,6 +43,7 @@ def add_pair(
     crs: str = "EPSG:4326",
     transform: Affine | None = None,
     prefix: str = "",
+    direction_nodata: float | None = None,
 ) -> None:
     direction = np.array([[8, 7, 0, 255], [6, 5, 4, 3]], dtype="uint8") if direction is None else direction
     accumulation = (
@@ -50,9 +51,8 @@ def add_pair(
     )
     transform = from_origin(0, 2, 1, 1) if transform is None else transform
     names = [f"{prefix}dir.tif", f"{prefix}acc.tif"]
-    for name, data, nodata in zip(
-        names, [direction, accumulation], [255 if direction.dtype == np.uint8 else -128, -999], strict=True
-    ):
+    dir_nodata = (255 if direction.dtype == np.uint8 else -128) if direction_nodata is None else direction_nodata
+    for name, data, nodata in zip(names, [direction, accumulation], [dir_nodata, -999], strict=True):
         with rasterio.open(
             root / name,
             "w",

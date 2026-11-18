@@ -35,8 +35,10 @@ records the exact grid/window for future raster export without reconstructing it
 - `direction` is int8: **1 E, 2 SE, 3 S, 4 SW, 5 W, 6 NW, 7 N, 8 NE**.
   These are native grid neighbors: E increases column and S increases row, even
   for a rotated affine.
-- Zero is a terminal cell. Negative directions preserve signed GRASS exiting-flow
-  meaning; they are terminal for upstream tracing, but retain the exit direction.
+- Zero is a terminal cell, including MERIT river mouths (`0`) and inland
+  depressions (`255` or `-1`), which remain distinct in `raw_direction`.
+  Negative directions preserve signed GRASS exiting-flow meaning; they are
+  terminal for upstream tracing, but retain the exit direction.
 - `direction_valid` and `accumulation_valid` are separate boolean masks. A false
   direction mask has a zero payload, not a valid terminal cell. Header nodata
   takes precedence over codes. Invalid consumed data raises an error.
@@ -45,7 +47,7 @@ records the exact grid/window for future raster export without reconstructing it
   declared. GRIT's width-partitioned drainage area remains width-partitioned km²;
   the reader does not convert it into another area definition.
 
-The reader supports ESRI, TauDEM and unsigned/signed GRASS direction encodings.
+The reader supports ESRI, MERIT, TauDEM and unsigned/signed GRASS direction encodings.
 It checks consumed declarations, fingerprints, pair CRS/grid, band count,
 dtype/nodata and consumed values. It trusts producer conformance for internal
 layout, overlap coherence, coverage union and hydrology. Native-only tiled TIFFs
