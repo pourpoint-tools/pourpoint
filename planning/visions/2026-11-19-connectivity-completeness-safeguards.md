@@ -24,6 +24,8 @@ Refactor upstream selection to return a typed result object consistently, rather
 
 Diagnostics must be durable data, not just logs, warnings, or raw provenance. Identify the assessment and affected catchment IDs, distinguish positive cuts from unverified units, and retain available cut information. Report absent assessment information explicitly rather than inventing per-unit evidence. Keep the assessment meaningful after fabric closure and after optional refinement: it describes source-network coverage of the selected closure, not a new certification of the raster output.
 
+The existing standalone selection-to-refinement workflow must also retain coverage diagnostics when consuming the new typed selection results, including selection batches. Do not merely unwrap the subbasins and discard the assessment. Manually supplied units or footprints must not acquire an invented verified assessment. Include a regression showing that an opted-in incomplete selection retains its original source-closure diagnostics through standalone refinement.
+
 Choose clear field names and small typed structures during implementation. Broader refactoring needed for a coherent design is in scope. There are no external users requiring backward compatibility: do not add compatibility wrappers, legacy return modes, or migration guides. Update affected repository callers, tests, examples and public docstrings to the new API rather than retaining two interfaces.
 
 ## Evidence and verification
