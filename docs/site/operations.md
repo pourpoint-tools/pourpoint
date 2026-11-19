@@ -10,10 +10,27 @@ areas or orders.
 
 Selection defaults to catchment level 1, never the finest available level.
 Point boundary ownership uses the smallest intersecting source ID. Regions include
-boundary intersections. Empty geometries give valid empty selections; nonempty
-targets with no intersecting unit raise `selection.no_coverage`. Missing or explicitly
-unsupplied connectivity fails rather than returning an apparently complete answer.
-Malformed flow edges crossing levels raise an integrity error.
+boundary intersections. Empty geometries give valid empty `SelectionResult` values
+with `coverage.status == "not_assessed"`; nonempty targets with no intersecting
+unit raise `selection.no_coverage`. Missing or explicitly unsupplied connectivity
+fails with `selection.connectivity_unavailable` rather than returning an apparently
+complete answer. Malformed flow edges crossing levels raise an integrity error.
+
+Selection and `delineate` check the requested level's HFX
+`catchment_connectivity` completeness declarations and per-unit cut column across
+the entire inclusive upstream closure before raster refinement or merging. When
+completeness is `"partial"`, every visited catchment must have a non-null zero
+in the declared `upstream_cuts_column` to pass by default (`coverage.status == "complete"`).
+Closures with positive cut counts (`selection.incomplete_coverage`), null cut counts
+(`selection.unverified_coverage`), both (`selection.incomplete_and_unverified_coverage`),
+or missing/uninstrumented completeness metadata (`selection.coverage_not_assessed`)
+fail by default. Pass `allow_incomplete=True` to return those results with their
+attached `UpstreamCoverage` diagnostics; `allow_incomplete=True` does not bypass
+unavailable connectivity or corrupt schemas, types, negative cut values, or values
+contradicting a `"complete"` declaration. Passing a `SelectionResult` (or selection
+`BatchResult`) to `refine` retains the original source-network coverage diagnostics
+on `GranularRefinement.coverage`, whereas manually supplied sub-basins or footprints
+receive `coverage.status == "not_assessed"`.
 
 Refinement assumes vector/raster equivalence; it does not certify that scientific
 assumption. The whole selected vector footprint is the computational mask.
@@ -89,7 +106,9 @@ types/nulls and field/schema metadata remain lossless Arrow IPC stream blobs in
 `source_arrow`, keyed by layer and source row or relationship kind. Use
 `pyarrow.ipc.open_stream(payload).read_all()` to read them. `source_metadata` keeps
 attribute-column mappings and source declarations; colliding scalar names receive
-`source_` prefixes. `river_connections` exposes directed supplied relations as
+`source_` prefixes. `result_metadata` retains target provenance, WGS84 target WKB
+and JSON-encoded `UpstreamCoverage` diagnostics across `SelectionResult`,
+`DelineationResult`, `GranularRefinement` and `FootprintRefinement` exports. `river_connections` exposes directed supplied relations as
 ordinary rows, alongside lossless relationship and node tables. Target identity
 columns are separate from source IDs. Original source geometry remains in Arrow
 provenance even where a displayed feature is clipped.

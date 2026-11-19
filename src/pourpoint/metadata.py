@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from math import isfinite
 from pathlib import PurePosixPath
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import unquote, urlsplit
 
 import numpy as np
@@ -28,9 +28,7 @@ def bounds(value: object) -> Bounds:
     elif not isinstance(value, (list, tuple)) or len(value) != 4:
         raise ValueError("bbox must contain four coordinates")
     if any(
-        isinstance(v, (bool, np.bool_))
-        or not isinstance(v, (int, float, np.floating, np.integer))
-        or not isfinite(v)
+        isinstance(v, (bool, np.bool_)) or not isinstance(v, (int, float, np.floating, np.integer)) or not isfinite(v)
         for v in value
     ):
         raise ValueError("bbox must be finite numbers")
@@ -126,6 +124,68 @@ class DomainFamily:
 
 
 @dataclass(frozen=True)
+class CatchmentConnectivity:
+    """Published catchment connectivity and completeness declarations for one level.
+
+    Attributes
+    ----------
+    level
+        Nonnegative catchment level to which this declaration applies.
+    status
+        Whether same-level catchment connectivity is ``"supplied"`` or
+        ``"not_supplied"``.
+    completeness
+        Declared source-network completeness when supplied: ``"complete"``,
+        ``"partial"``, or ``None`` when completeness metadata was omitted.
+    upstream_cuts_column
+        Top-level catchment integer column name reporting per-unit immediate
+        upstream cut counts (where ``0`` means verified complete, ``> 0`` means
+        known missing upstream connections, and ``null`` means unverified), or
+        ``None`` when absent.
+    derivation
+        Optional source derivation note, or ``None`` when omitted.
+    """
+
+    level: int
+    status: Literal["supplied", "not_supplied"]
+    completeness: Literal["complete", "partial"] | None = None
+    upstream_cuts_column: str | None = None
+    derivation: str | None = None
+
+    @classmethod
+    def parse(cls, value: object) -> CatchmentConnectivity:
+        entry = _mapping(value, "catchment_connectivity entry")
+        level = entry.get("level")
+        if type(level) is not int or level < 0:
+            raise ValueError("catchment_connectivity level must be a nonnegative integer")
+        status = entry.get("status")
+        if status not in ("supplied", "not_supplied"):
+            raise ValueError("catchment_connectivity status must be 'supplied' or 'not_supplied'")
+        optional_keys = ("completeness", "upstream_cuts_column", "derivation")
+        if status != "supplied" and any(key in entry for key in optional_keys):
+            raise ValueError("catchment_connectivity not_supplied entries must not declare completeness or derivation")
+        completeness: Literal["complete", "partial"] | None = None
+        if "completeness" in entry:
+            raw_completeness = entry["completeness"]
+            if raw_completeness not in ("complete", "partial"):
+                raise ValueError("catchment_connectivity completeness must be 'complete' or 'partial'")
+            completeness = cast(Literal["complete", "partial"], raw_completeness)
+        upstream_cuts_column: str | None = None
+        if "upstream_cuts_column" in entry:
+            if completeness is None:
+                raise ValueError("catchment_connectivity upstream_cuts_column requires completeness")
+            upstream_cuts_column = _string(entry, "upstream_cuts_column")
+        derivation = _string(entry, "derivation") if "derivation" in entry else None
+        return cls(
+            level,
+            cast(Literal["supplied", "not_supplied"], status),
+            completeness,
+            upstream_cuts_column,
+            derivation,
+        )
+
+
+@dataclass(frozen=True)
 class SpatialManifest:
     """Final HFX publication declarations, including unchanged source metadata.
 
@@ -142,12 +202,16 @@ class SpatialManifest:
     declarations
         Complete source manifest, including provenance, raster declarations and
         otherwise unrecognized metadata. No source attributes are standardized.
+    catchment_connectivity
+        Per-level catchment connectivity and completeness declarations keyed by
+        nonnegative catchment level. Absent levels remain unassessed.
     """
 
     families: Mapping[str, DomainFamily]
     relationships: Mapping[str, Mapping[str, object]]
     artifacts: Mapping[str, Fingerprint]
     declarations: Mapping[str, object]
+    catchment_connectivity: Mapping[int, CatchmentConnectivity]
 
     @classmethod
     def parse(cls, data: Mapping[str, object]) -> SpatialManifest:
@@ -208,9 +272,20 @@ class SpatialManifest:
                 if target not in families or target not in bindings or name not in bindings:
                     raise ValueError(f"{name}.{column}: missing target domain binding")
             relationships[name] = MappingProxyType(dict(relation))
+        connectivity: dict[int, CatchmentConnectivity] = {}
+        if "catchment_connectivity" in data:
+            raw_connectivity = data["catchment_connectivity"]
+            if not isinstance(raw_connectivity, list):
+                raise ValueError("manifest catchment_connectivity must be a list")
+            for item in raw_connectivity:
+                parsed = CatchmentConnectivity.parse(item)
+                if parsed.level in connectivity:
+                    raise ValueError(f"duplicate catchment_connectivity level {parsed.level}")
+                connectivity[parsed.level] = parsed
         return cls(
             MappingProxyType(families),
             MappingProxyType(relationships),
             MappingProxyType(artifacts),
             MappingProxyType(dict(data)),
+            MappingProxyType(connectivity),
         )

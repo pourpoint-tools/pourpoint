@@ -69,8 +69,12 @@ refine=True needs covering direction and accumulation rasters and never
 silently falls back to a coarse result. Consult the README's Rhine example
 for snapping, refinement and QGIS export; do not run it just for onboarding.
 
-Single-target OperationError exposes code and reason. For batches, inspect
-issues and None result slots; valid empty selections are not failures.
+Single-target OperationError exposes code and reason. Selection returns
+SelectionResult (with .subbasins and .coverage) and delineate returns
+DelineationResult (with .coverage). Incomplete, unverified or unassessed
+upstream coverage fails by default unless allow_incomplete=True is passed;
+retained UpstreamCoverage records affected unit IDs and cuts. For batches,
+inspect issues and None result slots; valid empty selections are not failures.
 Configuration and integrity errors raise. Do not treat partial batch success
 as complete coverage or source attributes as recomputed for clipped areas.
 
@@ -122,10 +126,10 @@ with pp.HydroFabric(dataset) as fabric:
     outlet = pp.snap(target=point, onto=nearby_rivers, radius=100)
 
     # Follow the sub-basin connections upstream from the outlet.
-    subbasins = pp.select_upstream_subbasins(fabric=fabric, target=outlet)
+    selection = pp.select_upstream_subbasins(fabric=fabric, target=outlet)
 
     # Use native flow rasters to resolve the watershed within those sub-basins.
-    refined = pp.refine(fabric=fabric, target=outlet, subbasins=subbasins)
+    refined = pp.refine(fabric=fabric, target=outlet, subbasins=selection)
     watershed = pp.merge(subbasins=refined.subbasins)
 
     # Select the supplied rivers inside the refined watershed.

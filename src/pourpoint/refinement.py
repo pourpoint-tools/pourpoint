@@ -25,7 +25,15 @@ from pourpoint._union import union_subbasins
 from pourpoint.fabric import HydroFabric
 from pourpoint.features import Attributes, Subbasin
 from pourpoint.rasters import MissingRastersError, RasterCoverageError, RasterGrid, RasterWindow
-from pourpoint.results import BatchResult, OperationError, Target
+from pourpoint.results import BatchResult, OperationError, SelectionResult, Target, UpstreamCoverage
+
+
+def _unassessed_subbasins_coverage() -> UpstreamCoverage:
+    return UpstreamCoverage("not_assessed", reason="coverage was not assessed for manually supplied subbasins")
+
+
+def _unassessed_footprint_coverage() -> UpstreamCoverage:
+    return UpstreamCoverage("not_assessed", reason="coverage was not assessed for a manually supplied footprint")
 
 
 @dataclass(frozen=True)
@@ -134,12 +142,18 @@ class GranularRefinement:
     rasters
         Materialized band subsets over the complete combined vector mask.
     provenance
-        Source manifest declarations; not proof of vector/raster equivalence."""
+        Source manifest declarations; not proof of vector/raster equivalence.
+    coverage
+        Retained source-network coverage assessment when refining a
+        `SelectionResult` or selection batch, or an explicit ``"not_assessed"``
+        assessment for manually supplied sub-basins. Retaining this assessment
+        does not recertify the raster output."""
 
     subbasins: list[SubbasinContribution]
     outlet_cell: OutletCell
     rasters: RefinementRasters
     provenance: Mapping[str, object] = field(default_factory=dict)
+    coverage: UpstreamCoverage = field(default_factory=_unassessed_subbasins_coverage)
 
 
 @dataclass(frozen=True)
@@ -157,12 +171,16 @@ class FootprintRefinement:
     rasters
         Materialized band subsets over the complete input vector mask.
     provenance
-        Source manifest declarations; not proof of vector/raster equivalence."""
+        Source manifest declarations; not proof of vector/raster equivalence.
+    coverage
+        Explicit source-network coverage assessment (``"not_assessed"`` for
+        manually supplied footprints)."""
 
     footprint: Polygon | MultiPolygon
     outlet_cell: OutletCell
     rasters: RefinementRasters
     provenance: Mapping[str, object] = field(default_factory=dict)
+    coverage: UpstreamCoverage = field(default_factory=_unassessed_footprint_coverage)
 
 
 type BasinPart = Subbasin | SubbasinContribution
@@ -246,13 +264,25 @@ def _trace(window: RasterWindow, mask: npt.NDArray[np.bool_], row: int, col: int
 
 @overload
 def _refine(
-    *, fabric: HydroFabric, target: Point, subbasins: Sequence[Subbasin], footprint: None = None, window_size: int = 3
+    *,
+    fabric: HydroFabric,
+    target: Point,
+    subbasins: Sequence[Subbasin],
+    footprint: None = None,
+    window_size: int = 3,
+    coverage: UpstreamCoverage | None = None,
 ) -> GranularRefinement: ...
 
 
 @overload
 def _refine(
-    *, fabric: HydroFabric, target: Point, footprint: BaseGeometry, subbasins: None = None, window_size: int = 3
+    *,
+    fabric: HydroFabric,
+    target: Point,
+    footprint: BaseGeometry,
+    subbasins: None = None,
+    window_size: int = 3,
+    coverage: UpstreamCoverage | None = None,
 ) -> FootprintRefinement: ...
 
 
@@ -263,6 +293,7 @@ def _refine(
     subbasins: Sequence[Subbasin] | None = None,
     footprint: BaseGeometry | None = None,
     window_size: int = 3,
+    coverage: UpstreamCoverage | None = None,
 ) -> GranularRefinement | FootprintRefinement:
     """Select the largest valid local accumulation, ties in source row/column order.
 
@@ -320,20 +351,32 @@ def _refine(
     cell = OutletCell(request.grid, row + request.row, col + request.col)
     rasters = RefinementRasters(RasterSubset(window, mask, "direction"), RasterSubset(window, mask, "accumulation"))
     if subbasins is None:
-        return FootprintRefinement(geometry, cell, rasters, fabric.manifest.declarations)
+        return FootprintRefinement(
+            geometry,
+            cell,
+            rasters,
+            fabric.manifest.declarations,
+            coverage or _unassessed_footprint_coverage(),
+        )
     contributions = []
     for source in subbasins:
         piece = _polygonal(geometry.intersection(source.geometry))
         if not piece.is_empty:
             contributions.append(SubbasinContribution(source, piece))
-    return GranularRefinement(contributions, cell, rasters, fabric.manifest.declarations)
+    return GranularRefinement(
+        contributions,
+        cell,
+        rasters,
+        fabric.manifest.declarations,
+        coverage or _unassessed_subbasins_coverage(),
+    )
 
 
 @overload
 def refine(
     *,
     fabric: HydroFabric,
-    subbasins: BatchResult[list[Subbasin]],
+    subbasins: BatchResult[SelectionResult],
     target: None = None,
     footprint: None = None,
     window_size: int = 3,
@@ -346,7 +389,7 @@ def refine(
     *,
     fabric: HydroFabric,
     target: Point,
-    subbasins: Sequence[Subbasin],
+    subbasins: SelectionResult | Sequence[Subbasin],
     footprint: None = None,
     window_size: int = 3,
     n_jobs: int = 1,
@@ -369,7 +412,7 @@ def refine(
     *,
     fabric: HydroFabric,
     target: Point | None = None,
-    subbasins: Sequence[Subbasin] | BatchResult[list[Subbasin]] | None = None,
+    subbasins: SelectionResult | Sequence[Subbasin] | BatchResult[SelectionResult] | None = None,
     footprint: BaseGeometry | None = None,
     window_size: int = 3,
     n_jobs: int = 1,
@@ -384,12 +427,17 @@ def refine(
         Nonempty point in EPSG:4326 covered by the mask. Omit for a selection
         batch, which carries its own target geometries.
     subbasins
-        Whole source units forming one mask, or a selection `BatchResult`.
-        Mutually exclusive with ``footprint``. Batch identity, order and prior
-        issues are preserved; failed slots are not retried.
+        A `SelectionResult`, whole source units forming one mask, or a
+        selection `BatchResult`. Mutually exclusive with ``footprint``.
+        Passing a `SelectionResult` or selection batch preserves its
+        source-network `UpstreamCoverage` diagnostics on the refined output;
+        manually supplied sub-basins receive ``status="not_assessed"``. Batch
+        identity, order and prior issues are preserved; failed slots are not
+        retried.
     footprint
-        Nonempty Polygon or MultiPolygon in EPSG:4326, used as one mask.
-        Supply exactly one mask form. Batch footprints come from ``subbasins``.
+        Nonempty Polygon or MultiPolygon in EPSG:4326, used as one mask
+        (``coverage.status == "not_assessed"``). Supply exactly one mask form.
+        Batch footprints come from ``subbasins``.
     window_size
         Positive odd search width in native cells around the cell containing
         the target. Size 1 permits no move beyond that cell. Selects the highest
@@ -403,7 +451,8 @@ def refine(
     -------
     GranularRefinement or FootprintRefinement or BatchResult
         Contributions for sub-basin input or one footprint for geometry input,
-        plus the selected native outlet cell and materialized raster subsets.
+        the selected native outlet cell, materialized raster subsets, and
+        retained or ``"not_assessed"`` source-network coverage diagnostics.
         Empty source pieces are omitted. Both forms trace the same combined
         mask; merging granular contributions yields the footprint result.
 
@@ -421,7 +470,8 @@ def refine(
         Invalid window/worker count or mutually incompatible mask arguments.
         Integrity and unexpected errors also propagate, including in batches.
     TypeError
-        A single call omits ``target``.
+        A single call omits ``target``, or a batch slot is not a
+        `SelectionResult`.
 
     Notes
     -----
@@ -446,14 +496,22 @@ def refine(
     if isinstance(subbasins, BatchResult):
         if target is not None or footprint is not None:
             raise ValueError("selection batches carry their own targets and footprints")
+        if any(slot is not None and not isinstance(slot, SelectionResult) for slot in subbasins.results):
+            raise TypeError("batch refinement requires a BatchResult of SelectionResult")
 
         def one(reader: HydroFabric, item: Target) -> GranularRefinement | None:
-            units = subbasins.results[item.index]
-            if units is None:
+            selection = subbasins.results[item.index]
+            if selection is None:
                 return None
             if not isinstance(item.geometry, Point):
                 raise OperationError("refinement.point_required", "refinement requires a point target")
-            return _refine(fabric=reader, subbasins=units, target=item.geometry, window_size=window_size)
+            return _refine(
+                fabric=reader,
+                subbasins=selection.subbasins,
+                target=item.geometry,
+                window_size=window_size,
+                coverage=selection.coverage,
+            )
 
         result = execute(fabric, subbasins.targets, one, n_jobs)
         return BatchResult(
@@ -466,7 +524,27 @@ def refine(
     if subbasins is not None:
         if footprint is not None:
             raise ValueError("provide exactly one of subbasins or footprint")
-        return _refine(fabric=fabric, target=target, subbasins=subbasins, window_size=window_size)
+        if isinstance(subbasins, SelectionResult):
+            return _refine(
+                fabric=fabric,
+                target=target,
+                subbasins=subbasins.subbasins,
+                window_size=window_size,
+                coverage=subbasins.coverage,
+            )
+        return _refine(
+            fabric=fabric,
+            target=target,
+            subbasins=subbasins,
+            window_size=window_size,
+            coverage=_unassessed_subbasins_coverage(),
+        )
     if footprint is None:
         raise ValueError("provide exactly one of subbasins or footprint")
-    return _refine(fabric=fabric, target=target, footprint=footprint, window_size=window_size)
+    return _refine(
+        fabric=fabric,
+        target=target,
+        footprint=footprint,
+        window_size=window_size,
+        coverage=_unassessed_footprint_coverage(),
+    )

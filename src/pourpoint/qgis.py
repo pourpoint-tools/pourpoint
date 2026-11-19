@@ -23,9 +23,15 @@ from shapely.geometry.base import BaseGeometry
 from pourpoint._selection import compact_dictionaries
 from pourpoint.features import Feature, RiverNetwork
 from pourpoint.refinement import FootprintRefinement, GranularRefinement, RasterSubset, SubbasinContribution
-from pourpoint.results import BatchIssue, BatchResult, DelineationResult
+from pourpoint.results import BatchIssue, BatchResult, DelineationResult, SelectionResult, UpstreamCoverage
 
-type ExportResult = DelineationResult | GranularRefinement | FootprintRefinement
+type ExportResult = SelectionResult | DelineationResult | GranularRefinement | FootprintRefinement
+type ExportBatch = (
+    BatchResult[SelectionResult]
+    | BatchResult[DelineationResult]
+    | BatchResult[GranularRefinement]
+    | BatchResult[FootprintRefinement]
+)
 type VectorFeature = Feature | SubbasinContribution
 
 
@@ -113,6 +119,23 @@ def _scalar_type(dtype: pa.DataType) -> str | None:
     return None
 
 
+def _serialize_coverage(coverage: UpstreamCoverage) -> str:
+    return json.dumps(
+        {
+            "status": coverage.status,
+            "declared_completeness": coverage.declared_completeness,
+            "cuts_column": coverage.cuts_column,
+            "cut_counts": (
+                None if coverage.cut_counts is None else {str(uid): count for uid, count in coverage.cut_counts.items()}
+            ),
+            "unverified_unit_ids": (
+                None if coverage.unverified_unit_ids is None else list(coverage.unverified_unit_ids)
+            ),
+            "reason": coverage.reason,
+        }
+    )
+
+
 def _initialize(db: sqlite3.Connection) -> None:
     db.executescript("""
         PRAGMA application_id = 1196444487;
@@ -129,7 +152,7 @@ def _initialize(db: sqlite3.Connection) -> None:
           stream_id INTEGER NOT NULL, part INTEGER NOT NULL, PRIMARY KEY (stream_id, part));
         CREATE TABLE source_metadata (layer_name TEXT NOT NULL, metadata TEXT NOT NULL);
         CREATE TABLE target_issues (target_index INTEGER, target_name TEXT, code TEXT, reason TEXT);
-        CREATE TABLE result_metadata (target_name TEXT, target_index INTEGER, metadata TEXT, original_target BLOB, adjusted_target BLOB);
+        CREATE TABLE result_metadata (target_name TEXT, target_index INTEGER, metadata TEXT, original_target BLOB, adjusted_target BLOB, coverage TEXT);
         INSERT INTO gpkg_contents (table_name, data_type, identifier) VALUES ('result_metadata','attributes','result_metadata');
         CREATE TABLE river_connections (layer_name TEXT, source_id INTEGER, relation TEXT, target_id INTEGER);
         INSERT INTO gpkg_contents (table_name, data_type, identifier) VALUES ('river_connections','attributes','river_connections');
@@ -162,7 +185,8 @@ class QGISBundle:
     Individual geometry and ordinary attribute values must still fit SQLite's
     value/row limits; segmentation removes the aggregate source-IPC limit only.
     Result locations are WGS84 WKB in
-    ``result_metadata``, alongside provenance; these are not extra map layers.
+    ``result_metadata``, alongside provenance and JSON-encoded
+    ``UpstreamCoverage`` diagnostics; these are not extra map layers.
     """
 
     def __init__(self) -> None:
@@ -232,23 +256,26 @@ class QGISBundle:
         self._rasters.append((name, data, None))
         return self
 
-    def add_result(self, result: ExportResult | BatchResult[ExportResult]) -> Self:
-        """Add available delineation or refinement outputs without computing more.
+    def add_result(self, result: ExportResult | ExportBatch | BatchResult[ExportResult]) -> Self:
+        """Add available selection, delineation or refinement outputs without computing more.
 
         Parameters
         ----------
         result
-            A single result or its batch container. Each batch target gets its
-            named group and retained identity; failures go into ``target_issues``
-            without fabricated features. Available outputs include sub-basins,
-            merged footprint, outlined native-CRS outlet cell and one raster
-            pair per refined target. Overlapping targets may duplicate pixels.
-            Granular refinement is not silently merged into another layer.
+            A single result (`SelectionResult`, `DelineationResult`,
+            `GranularRefinement` or `FootprintRefinement`) or its batch
+            container. Each batch target gets its named group and retained
+            identity; failures go into ``target_issues`` without fabricated
+            features. Available outputs include sub-basins, merged footprint,
+            outlined native-CRS outlet cell and one raster pair per refined
+            target. Overlapping targets may duplicate pixels. Granular
+            refinement is not silently merged into another layer.
 
         Notes
         -----
-        Original and vector-adjusted targets and provenance are retained in
-        ``result_metadata`` when available, not added as extra map layers.
+        Original and vector-adjusted targets, provenance and source-network
+        coverage diagnostics are retained in ``result_metadata`` when available,
+        not added as extra map layers.
         """
         if isinstance(result, BatchResult):
             self._issues.extend(result.issues)
@@ -270,12 +297,12 @@ class QGISBundle:
                 self.add_vector("subbasins", result.subbasins)
             if isinstance(result, DelineationResult) and result.geometry is not None:
                 self.add_vector("watershed", result.geometry, crs="EPSG:4326")
-        if result.outlet_cell is not None:
+        if not isinstance(result, SelectionResult) and result.outlet_cell is not None:
             self.add_vector("outlet_cell", result.outlet_cell.geometry, crs=result.outlet_cell.grid.crs)
             self._vectors[-1].outline = True
         for vector in self._vectors[start:]:
             vector.group, vector.target_index = group, index
-        if result.rasters is not None:
+        if not isinstance(result, SelectionResult) and result.rasters is not None:
             self._rasters.extend(
                 (
                     ("flow_direction", result.rasters.direction, group),
@@ -325,14 +352,15 @@ class QGISBundle:
         with sqlite3.connect(folder / "vectors.gpkg") as db:
             _initialize(db)
             db.executemany(
-                "INSERT INTO result_metadata VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO result_metadata VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     (
                         name,
                         index,
                         json.dumps(dict(result.provenance)),
                         result.original_target.wkb if isinstance(result, DelineationResult) else None,
-                        result.target.wkb if isinstance(result, DelineationResult) else None,
+                        result.target.wkb if isinstance(result, (DelineationResult, SelectionResult)) else None,
+                        _serialize_coverage(result.coverage),
                     )
                     for name, index, result in self._results
                 ],
