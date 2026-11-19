@@ -50,6 +50,10 @@ def test_whole_mask_trace_excludes_downstream_branch_and_preserves_attributes(tm
     assert result.rasters.direction.window.raw_direction.tolist() == [[8, 8, 8, 0]]
     assert result.rasters.direction.window.direction_nodata == 255
     assert result.rasters.accumulation.window.accumulation_nodata == -999
+    assert result.coverage.status == "not_assessed"
+    assert result.coverage.reason is not None and "subbasins" in result.coverage.reason
+    assert merged.coverage.status == "not_assessed"
+    assert merged.coverage.reason is not None and "footprint" in merged.coverage.reason
 
 
 @pytest.mark.parametrize("terminal", [-8, 0, -128])
@@ -223,3 +227,19 @@ def test_merit_terminal_outlets_accept_upstream_flow_and_exclude_nodata(tmp_path
     assert signed_result.rasters.direction.window.raw_direction is not None
     assert signed_result.rasters.direction.window.raw_direction.dtype == np.int8
     np.testing.assert_array_equal(signed_result.rasters.direction.window.raw_direction, signed_dir)
+
+
+def test_batch_refinement_rejects_non_selection_result_slots(tmp_path: Path) -> None:
+    from pourpoint.results import BatchResult, Target
+
+    table = pa.table({"id": [1], "geometry": [box(0, 0, 1, 1).wkb]})
+    bad_batch = BatchResult(
+        results=[[Subbasin(table, 0)]],  # type: ignore[list-item]
+        targets=[Target(0, "raw", Point(0.5, 0.5))],
+        issues=[],
+    )
+    with (
+        HydroFabric(make_spatial_bundle(tmp_path / "fabric")) as fabric,
+        pytest.raises(TypeError, match="SelectionResult"),
+    ):
+        refine(fabric=fabric, subbasins=bad_batch)  # type: ignore[arg-type]

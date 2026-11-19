@@ -17,3 +17,5 @@ hydrological selection rather than rebuilding it from source primitives.
 ::: pourpoint.rasters.RasterGrid
 
 ::: pourpoint.metadata.SpatialManifest
+
+::: pourpoint.metadata.CatchmentConnectivity

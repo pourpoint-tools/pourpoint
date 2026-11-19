@@ -18,6 +18,10 @@ def make_spatial_bundle(path: Path, *, local_associations: bool = False) -> Path
         "fabric_name": "example",
         "crs": "EPSG:4326",
         "bbox": [0, 0, 20, 20],
+        "catchment_connectivity": [
+            {"level": 1, "status": "supplied", "completeness": "complete"},
+            {"level": 2, "status": "supplied", "completeness": "complete"},
+        ],
         "families": {},
         "relationships": {},
         "artifacts": {},

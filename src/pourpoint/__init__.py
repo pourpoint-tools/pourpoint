@@ -14,7 +14,15 @@ from pourpoint.refinement import (
     merge,
     refine,
 )
-from pourpoint.results import BatchIssue, BatchResult, DelineationResult, OperationError, Target
+from pourpoint.results import (
+    BatchIssue,
+    BatchResult,
+    DelineationResult,
+    OperationError,
+    SelectionResult,
+    Target,
+    UpstreamCoverage,
+)
 from pourpoint.rivers import select_rivers, snap
 
 __all__ = [
@@ -33,6 +41,8 @@ __all__ = [
     "FootprintRefinement",
     "BatchIssue",
     "BatchResult",
+    "SelectionResult",
+    "UpstreamCoverage",
     "DelineationResult",
     "OperationError",
     "Target",

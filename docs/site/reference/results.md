@@ -26,6 +26,10 @@
 
 ::: pourpoint.BatchResult
 
+::: pourpoint.UpstreamCoverage
+
+::: pourpoint.SelectionResult
+
 ::: pourpoint.DelineationResult
 
 ::: pourpoint.OperationError

@@ -159,3 +159,78 @@ def test_spatial_relationship_binding_uses_target_domain_not_source_domain():
     data["relationships"]["catchments"]["feature_artifacts"]["rivers"]["data_sha256"] = "c" * 64
     with pytest.raises(ValueError, match="binding"):
         SpatialManifest.parse(data)
+
+
+def test_spatial_manifest_parses_valid_catchment_connectivity() -> None:
+    from pourpoint.metadata import CatchmentConnectivity, SpatialManifest
+
+    omitted = SpatialManifest.parse(spatial_manifest_data())
+    assert omitted.catchment_connectivity == {}
+
+    data = spatial_manifest_data()
+    data["catchment_connectivity"] = [
+        {"level": 0, "status": "not_supplied", "extra_note": "kept in declarations"},
+        {"level": 1, "status": "supplied"},
+        {"level": 2, "status": "supplied", "completeness": "complete"},
+        {"level": 3, "status": "supplied", "completeness": "partial"},
+        {
+            "level": 4,
+            "status": "supplied",
+            "completeness": "partial",
+            "upstream_cuts_column": "upstream_boundary_cuts",
+            "derivation": "river_local_associations",
+            "extra": 123,
+        },
+    ]
+    manifest = SpatialManifest.parse(data)
+    assert manifest.catchment_connectivity[0] == CatchmentConnectivity(level=0, status="not_supplied")
+    assert manifest.catchment_connectivity[1] == CatchmentConnectivity(level=1, status="supplied")
+    assert manifest.catchment_connectivity[2] == CatchmentConnectivity(
+        level=2, status="supplied", completeness="complete"
+    )
+    assert manifest.catchment_connectivity[3] == CatchmentConnectivity(
+        level=3, status="supplied", completeness="partial"
+    )
+    assert manifest.catchment_connectivity[4] == CatchmentConnectivity(
+        level=4,
+        status="supplied",
+        completeness="partial",
+        upstream_cuts_column="upstream_boundary_cuts",
+        derivation="river_local_associations",
+    )
+    assert manifest.declarations["catchment_connectivity"][0]["extra_note"] == "kept in declarations"
+    assert manifest.declarations["catchment_connectivity"][4]["extra"] == 123
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"level": 0, "status": "supplied"},
+        "invalid",
+        ["not-an-entry"],
+        [{"status": "supplied"}],
+        [{"level": -1, "status": "supplied"}],
+        [{"level": True, "status": "supplied"}],
+        [{"level": 0, "status": "supplied"}, {"level": 0, "status": "not_supplied"}],
+        [{"level": 0, "status": "unknown"}],
+        [{"level": 0, "status": "supplied", "completeness": None}],
+        [{"level": 0, "status": "supplied", "completeness": "unknown"}],
+        [{"level": 0, "status": "supplied", "completeness": ""}],
+        [{"level": 0, "status": "supplied", "completeness": 1}],
+        [{"level": 0, "status": "supplied", "completeness": "partial", "upstream_cuts_column": ""}],
+        [{"level": 0, "status": "supplied", "completeness": "partial", "upstream_cuts_column": 42}],
+        [{"level": 0, "status": "supplied", "completeness": "partial", "derivation": ""}],
+        [{"level": 0, "status": "supplied", "completeness": "partial", "derivation": None}],
+        [{"level": 0, "status": "supplied", "upstream_cuts_column": "upstream_boundary_cuts"}],
+        [{"level": 0, "status": "not_supplied", "completeness": "complete"}],
+        [{"level": 0, "status": "not_supplied", "upstream_cuts_column": "upstream_boundary_cuts"}],
+        [{"level": 0, "status": "not_supplied", "derivation": "river_local_associations"}],
+    ],
+)
+def test_spatial_manifest_rejects_invalid_catchment_connectivity(value: object) -> None:
+    from pourpoint.metadata import SpatialManifest
+
+    data = spatial_manifest_data()
+    data["catchment_connectivity"] = value
+    with pytest.raises(ValueError):
+        SpatialManifest.parse(data)

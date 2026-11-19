@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, overload
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, cast, overload
 
 if TYPE_CHECKING:
     from pourpoint.refinement import SubbasinContribution
     from pourpoint.rivers import SnapGeometry
 
+import pyarrow as pa
 from shapely.geometry import Point
 from shapely.geometry.base import BaseGeometry
 
 from pourpoint._batch import Targets, execute, identify, workers
 from pourpoint.fabric import HydroFabric
 from pourpoint.features import Subbasin
-from pourpoint.results import BatchResult, DelineationResult, OperationError
+from pourpoint.results import (
+    BatchResult,
+    CoverageStatus,
+    DeclaredCompleteness,
+    DelineationResult,
+    OperationError,
+    SelectionResult,
+    UpstreamCoverage,
+)
 
 
 def _level(level: int) -> None:
@@ -23,24 +33,130 @@ def _level(level: int) -> None:
         raise ValueError("level must be a nonnegative integer")
 
 
-def _select(*, fabric: HydroFabric, target: BaseGeometry, level: int) -> list[Subbasin]:
+def _validate_cuts_column(schema: pa.Schema, column: str) -> None:
+    if column not in schema.names:
+        raise ValueError(f"declared upstream_cuts_column {column!r} is missing from catchments schema")
+    if not pa.types.is_integer(schema.field(column).type):
+        raise ValueError(f"declared upstream_cuts_column {column!r} must have an integer Arrow type")
+
+
+def _assess_cuts(units: list[Subbasin], *, column: str, declared: DeclaredCompleteness) -> UpstreamCoverage:
+    tables: dict[int, pa.Table] = {}
+    for unit in units:
+        tables.setdefault(id(unit.table), unit.table)
+    for table in tables.values():
+        _validate_cuts_column(table.schema, column)
+    cut_counts: dict[int, int] = {}
+    unverified: list[int] = []
+    if len(tables) == 1 and units:
+        table = units[0].table
+        ids = cast(list[int], table["id"].to_pylist())
+        values = cast(list[int | None], table[column].to_pylist())
+        pairs: Iterable[tuple[int, int | None]] = ((ids[unit.row], values[unit.row]) for unit in units)
+    else:
+        pairs = ((unit.id, cast(int | None, unit.table[column][unit.row].as_py())) for unit in units)
+    for uid, value in pairs:
+        if value is None:
+            unverified.append(uid)
+        elif value < 0:
+            raise ValueError(f"catchment {uid}: negative {column} value {value}")
+        elif value > 0:
+            cut_counts[uid] = value
+    if declared == "complete" and (cut_counts or unverified):
+        raise ValueError(
+            f"catchment_connectivity declares complete for {column!r} but visited units have cuts or nulls"
+        )
+    if cut_counts and unverified:
+        status: CoverageStatus = "incomplete_and_unverified"
+    elif cut_counts:
+        status = "incomplete"
+    elif unverified:
+        status = "unverified"
+    else:
+        status = "complete"
+    return UpstreamCoverage(
+        status,
+        declared_completeness=declared,
+        cuts_column=column,
+        cut_counts=cut_counts,
+        unverified_unit_ids=tuple(sorted(unverified)),
+    )
+
+
+def _sample_ids(ids: Iterable[int], limit: int = 5) -> str:
+    items = list(ids)
+    sample = ", ".join(str(uid) for uid in items[:limit])
+    return f"{sample}, ..." if len(items) > limit else sample
+
+
+def _coverage_error(coverage: UpstreamCoverage) -> OperationError:
+    if coverage.status == "not_assessed":
+        return OperationError(
+            "selection.coverage_not_assessed",
+            coverage.reason or "upstream catchment coverage could not be assessed",
+        )
+    cuts = coverage.cut_counts or {}
+    unverified = coverage.unverified_unit_ids or ()
+    if coverage.status == "incomplete":
+        return OperationError(
+            "selection.incomplete_coverage",
+            f"upstream closure has {len(cuts)} cut catchment(s) ({coverage.total_cuts} cut edges; IDs: {_sample_ids(cuts)})",
+        )
+    if coverage.status == "unverified":
+        return OperationError(
+            "selection.unverified_coverage",
+            f"upstream closure has {len(unverified)} unverified catchment(s) (IDs: {_sample_ids(unverified)})",
+        )
+    if coverage.status == "incomplete_and_unverified":
+        return OperationError(
+            "selection.incomplete_and_unverified_coverage",
+            f"upstream closure has {len(cuts)} cut catchment(s) ({coverage.total_cuts} cut edges; IDs: {_sample_ids(cuts)}) "
+            f"and {len(unverified)} unverified catchment(s) (IDs: {_sample_ids(unverified)})",
+        )
+    raise ValueError(f"unexpected non-error coverage status {coverage.status!r}")
+
+
+def _select(
+    *, fabric: HydroFabric, target: BaseGeometry, level: int, allow_incomplete: bool = False
+) -> SelectionResult:
     if not isinstance(target, BaseGeometry):
         raise TypeError("target must be a Shapely geometry")
     if target.is_empty:
-        return []
+        return SelectionResult(
+            [],
+            UpstreamCoverage("not_assessed", reason="empty target selected no catchments"),
+            level,
+            target,
+            fabric.manifest.declarations,
+        )
     if not target.is_valid:
         raise OperationError("selection.invalid_target", "target geometry is invalid")
-    connectivity = fabric.manifest.declarations.get("catchment_connectivity", [])
-    if isinstance(connectivity, (list, tuple)):
-        for entry in connectivity:
-            if isinstance(entry, dict) and entry.get("level") == level and entry.get("status") == "not_supplied":
-                raise OperationError(
-                    "selection.connectivity_unavailable", f"upstream connectivity is not supplied for level {level}"
-                )
-    declaration = fabric.manifest.relationships.get("catchments", {})
-    columns = declaration.get("columns", {})
+    declaration = fabric.manifest.catchment_connectivity.get(level)
+    if declaration is not None and declaration.status == "not_supplied":
+        raise OperationError(
+            "selection.connectivity_unavailable", f"upstream connectivity is not supplied for level {level}"
+        )
+    rel_declaration = fabric.manifest.relationships.get("catchments", {})
+    columns = rel_declaration.get("columns", {})
     if not isinstance(columns, dict) or "upstream_ids" not in columns:
         raise OperationError("selection.connectivity_unavailable", "upstream connectivity is not supplied")
+    pre_coverage: UpstreamCoverage | None = None
+    if declaration is None or declaration.completeness is None:
+        pre_coverage = UpstreamCoverage(
+            "not_assessed",
+            declared_completeness=None,
+            reason=f"catchment completeness metadata is not declared for level {level}",
+        )
+    elif declaration.completeness == "partial" and declaration.upstream_cuts_column is None:
+        pre_coverage = UpstreamCoverage(
+            "not_assessed",
+            declared_completeness="partial",
+            reason=f"level {level} declares partial connectivity without an upstream_cuts_column",
+        )
+    if pre_coverage is not None and not allow_incomplete:
+        raise _coverage_error(pre_coverage)
+    if declaration is not None and declaration.upstream_cuts_column is not None:
+        _validate_cuts_column(fabric._reader("catchments").schema, declaration.upstream_cuts_column)
     table = fabric.candidates("catchments", target.bounds, levels=[level])
     seeds = sorted(
         Subbasin(table, row).id for row in range(table.num_rows) if Subbasin(table, row).geometry.intersects(target)
@@ -53,24 +169,48 @@ def _select(*, fabric: HydroFabric, target: BaseGeometry, level: int) -> list[Su
     units = fabric.subbasins(fabric.traverse("catchments", seeds))
     if any(unit.attributes["level"] != level for unit in units):
         raise ValueError("catchment flow relationship crosses levels")
-    return units
+    if declaration is not None and declaration.upstream_cuts_column is not None:
+        coverage = _assess_cuts(
+            units,
+            column=declaration.upstream_cuts_column,
+            declared=cast(DeclaredCompleteness, declaration.completeness),
+        )
+        if not coverage.is_complete and not allow_incomplete:
+            raise _coverage_error(coverage)
+    elif declaration is not None and declaration.completeness == "complete":
+        coverage = UpstreamCoverage(
+            "complete",
+            declared_completeness="complete",
+            cuts_column=None,
+            cut_counts={},
+            unverified_unit_ids=(),
+        )
+    else:
+        assert pre_coverage is not None
+        coverage = pre_coverage
+    return SelectionResult(units, coverage, level, target, fabric.manifest.declarations)
 
 
 @overload
 def select_upstream_subbasins(
-    *, fabric: HydroFabric, target: BaseGeometry, level: int = 1, n_jobs: int = 1
-) -> list[Subbasin]: ...
+    *, fabric: HydroFabric, target: BaseGeometry, level: int = 1, allow_incomplete: bool = False, n_jobs: int = 1
+) -> SelectionResult: ...
 
 
 @overload
 def select_upstream_subbasins(
-    *, fabric: HydroFabric, target: Targets, level: int = 1, n_jobs: int = 1
-) -> BatchResult[list[Subbasin]]: ...
+    *, fabric: HydroFabric, target: Targets, level: int = 1, allow_incomplete: bool = False, n_jobs: int = 1
+) -> BatchResult[SelectionResult]: ...
 
 
 def select_upstream_subbasins(
-    *, fabric: HydroFabric, target: BaseGeometry | Targets, level: int = 1, n_jobs: int = 1
-) -> list[Subbasin] | BatchResult[list[Subbasin]]:
+    *,
+    fabric: HydroFabric,
+    target: BaseGeometry | Targets,
+    level: int = 1,
+    allow_incomplete: bool = False,
+    n_jobs: int = 1,
+) -> SelectionResult | BatchResult[SelectionResult]:
     """Select whole sub-basins approximating land draining to a target.
 
     Parameters
@@ -84,15 +224,23 @@ def select_upstream_subbasins(
         supplied catchment ID; river associations do not determine ownership.
     level
         Nonnegative catchment level, selected explicitly without fallback.
+    allow_incomplete
+        Accept selections whose upstream closure has known missing upstream
+        connections, unverified (null) cut counts, or missing completeness
+        assessment metadata. Returned `UpstreamCoverage` diagnostics retain
+        all affected IDs and counts without promoting them to complete.
+        Unavailable connectivity and corrupt source schemas or cut values still
+        raise even when ``allow_incomplete=True``.
     n_jobs
         Batch worker limit: 1 is sequential, -1 uses available CPU capacity,
         and positive values bound worker-owned readers. Single calls are serial.
 
     Returns
     -------
-    list or BatchResult
-        Whole intersecting units and their inclusive upstream closure. An empty
-        geometry succeeds with an empty list. Batch slots preserve input order;
+    SelectionResult or BatchResult
+        Selected whole units and source-network `UpstreamCoverage` diagnostics.
+        An empty geometry succeeds without opt-in with empty sub-basins and
+        ``coverage.status == "not_assessed"``. Batch slots preserve input order;
         dictionary keys are names, while list entries get new UUID names on
         each call. Duplicate geometries remain independent targets.
 
@@ -100,31 +248,44 @@ def select_upstream_subbasins(
     ------
     OperationError
         ``selection.invalid_target`` for invalid geometry,
-        ``selection.no_coverage`` for a nonempty target without coverage, or
-        ``selection.connectivity_unavailable`` for unsupplied connectivity.
+        ``selection.no_coverage`` for a nonempty target without coverage,
+        ``selection.connectivity_unavailable`` for unsupplied connectivity,
+        ``selection.incomplete_coverage`` when visited units have positive cuts,
+        ``selection.unverified_coverage`` when visited units have null cuts,
+        ``selection.incomplete_and_unverified_coverage`` when both occur, or
+        ``selection.coverage_not_assessed`` when completeness metadata or a
+        usable cut column is missing (unless ``allow_incomplete=True``).
         Batches retain these failures as issues with None result slots.
     ValueError
-        Invalid level or worker count, or a flow relationship crossing levels.
+        Invalid level or worker count, a flow relationship crossing levels,
+        missing or non-integer declared cut columns, negative cut counts, or
+        cuts/nulls contradicting a ``complete`` declaration.
     TypeError
-        Invalid target type or batch names.
+        Invalid target type, nonboolean ``allow_incomplete``, or invalid batch
+        names.
 
     Notes
     -----
     This is whole-unit selection, not exact-point raster delineation. Returned
-    vectors survive fabric closure. Integrity, configuration and unexpected
-    failures propagate even in batches; they are not empty selections.
+    vectors and coverage diagnostics survive fabric closure. Integrity,
+    configuration and unexpected failures propagate even in batches; they are
+    not empty selections.
     """
     _level(level)
     workers(n_jobs)
+    if type(allow_incomplete) is not bool:
+        raise TypeError("allow_incomplete must be boolean")
     fabric._ensure_open()
     if isinstance(target, (dict, list)):
         return execute(
             fabric,
             identify(target),
-            lambda reader, geometry: _select(fabric=reader, target=geometry.geometry, level=level),
+            lambda reader, geometry: _select(
+                fabric=reader, target=geometry.geometry, level=level, allow_incomplete=allow_incomplete
+            ),
             n_jobs,
         )
-    return _select(fabric=fabric, target=target, level=level)
+    return _select(fabric=fabric, target=target, level=level, allow_incomplete=allow_incomplete)
 
 
 @overload
@@ -138,6 +299,7 @@ def delineate(
     refine: bool = False,
     merge: bool = True,
     window_size: int = 3,
+    allow_incomplete: bool = False,
     n_jobs: int = 1,
 ) -> DelineationResult: ...
 
@@ -153,6 +315,7 @@ def delineate(
     refine: bool = False,
     merge: bool = True,
     window_size: int = 3,
+    allow_incomplete: bool = False,
     n_jobs: int = 1,
 ) -> BatchResult[DelineationResult]: ...
 
@@ -167,6 +330,7 @@ def delineate(
     refine: bool = False,
     merge: bool = True,
     window_size: int = 3,
+    allow_incomplete: bool = False,
     n_jobs: int = 1,
 ) -> DelineationResult | BatchResult[DelineationResult]:
     """Compose snapping, upstream selection, optional refinement and merging.
@@ -195,6 +359,10 @@ def delineate(
     window_size
         Positive odd native-cell outlet search width. Validated even without
         refinement. This is a practical choice, not a universal scientific optimum.
+    allow_incomplete
+        Accept selections with incomplete, unverified or unassessed upstream
+        source-network coverage, following `select_upstream_subbasins`. Coverage
+        is assessed before raster refinement or merging.
     n_jobs
         Batch worker limit: 1 is sequential, -1 uses available CPU capacity,
         and positive values bound worker-owned readers.
@@ -203,8 +371,9 @@ def delineate(
     -------
     DelineationResult or BatchResult
         Whole units or refined contributions, optional merged geometry, original
-        and adjusted targets, source declarations, and any selected outlet and
-        raster subsets. Batch identity and order are retained.
+        and adjusted targets, source declarations, source-network coverage
+        assessment, and any selected outlet and raster subsets. Batch identity
+        and order are retained.
 
     Raises
     ------
@@ -213,17 +382,21 @@ def delineate(
         `select_upstream_subbasins` and `pourpoint.refinement.refine`.
         Batches record them as issues and None slots, not coarse successes.
     ValueError
-        Invalid level, worker count, radius or window size, or invalid supplied
-        stream geometry. Shared configuration and integrity failures propagate
-        rather than becoming batch issues.
+        Invalid level, worker count, radius or window size, invalid supplied
+        stream geometry, or corrupt connectivity/cut metadata. Shared
+        configuration and integrity failures propagate rather than becoming
+        batch issues.
     TypeError
-        Invalid target types or nonboolean refinement/merge controls.
+        Invalid target types or nonboolean refinement/merge/completeness
+        controls.
 
     Notes
     -----
-    No separate delineation algorithm is used. Vector outputs are materialized
-    and remain usable after fabric closure. Vector snapping and raster outlet
-    adjustment are distinct: the latter is retained in ``outlet_cell``.
+    No separate delineation algorithm is used. Vector outputs and coverage
+    diagnostics are materialized and remain usable after fabric closure. Vector
+    snapping and raster outlet adjustment are distinct: the latter is retained
+    in ``outlet_cell``. Source-network coverage on ``DelineationResult`` still
+    describes the selected vector closure, not raster completeness.
     """
     _level(level)
     workers(n_jobs)
@@ -231,6 +404,8 @@ def delineate(
         raise ValueError("window_size must be a positive odd integer")
     if type(refine) is not bool or type(merge) is not bool:
         raise TypeError("refine and merge must be boolean")
+    if type(allow_incomplete) is not bool:
+        raise TypeError("allow_incomplete must be boolean")
     if not math.isfinite(radius) or radius < 0:
         raise ValueError("radius must be finite and nonnegative")
     fabric._ensure_open()
@@ -241,16 +416,16 @@ def delineate(
             from pourpoint.rivers import snap
 
             adjusted = snap(target=geometry, onto=snap_onto, radius=radius)
-        units = _select(fabric=reader, target=adjusted, level=level)
+        selection = _select(fabric=reader, target=adjusted, level=level, allow_incomplete=allow_incomplete)
         outlet = None
         rasters = None
-        parts: list[Subbasin | SubbasinContribution] = list(units)
+        parts: list[Subbasin | SubbasinContribution] = list(selection.subbasins)
         if refine:
             from pourpoint.refinement import refine as refine_point
 
             if not isinstance(adjusted, Point):
                 raise OperationError("refinement.point_required", "refinement requires a point target")
-            refined = refine_point(fabric=reader, subbasins=units, target=adjusted, window_size=window_size)
+            refined = refine_point(fabric=reader, subbasins=selection, target=adjusted, window_size=window_size)
             parts = list(refined.subbasins)
             outlet, rasters = refined.outlet_cell, refined.rasters
         merged = None
@@ -258,7 +433,16 @@ def delineate(
             from pourpoint.refinement import merge as merge_subbasins
 
             merged = merge_subbasins(subbasins=parts)
-        return DelineationResult(parts, merged, outlet, rasters, geometry, adjusted, reader.manifest.declarations)
+        return DelineationResult(
+            parts,
+            merged,
+            outlet,
+            rasters,
+            geometry,
+            adjusted,
+            reader.manifest.declarations,
+            selection.coverage,
+        )
 
     if isinstance(target, (dict, list)):
         return execute(fabric, identify(target), lambda reader, item: one(reader, item.geometry), n_jobs)

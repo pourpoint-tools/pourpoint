@@ -45,10 +45,16 @@ def test_raw_geometry_requires_crs_and_existing_folder_is_not_overwritten(tmp_pa
 
 
 def test_batch_groups_keep_failed_targets(tmp_path: Path) -> None:
-    from pourpoint.results import BatchIssue, BatchResult, DelineationResult, Target
+    from pourpoint.results import BatchIssue, BatchResult, DelineationResult, Target, UpstreamCoverage
 
     geometry = box(0, 0, 1, 1)
-    result = DelineationResult([], geometry, None, None, geometry, geometry, {"license": "CC BY-NC 4.0"})
+    coverage = UpstreamCoverage(
+        status="complete",
+        declared_completeness="complete",
+        cut_counts={},
+        unverified_unit_ids=(),
+    )
+    result = DelineationResult([], geometry, None, None, geometry, geometry, {"license": "CC BY-NC 4.0"}, coverage)
     batch = BatchResult(
         [result, None],
         [Target(0, "up/stream", geometry), Target(1, "missing", geometry)],
@@ -62,8 +68,16 @@ def test_batch_groups_keep_failed_targets(tmp_path: Path) -> None:
         assert db.execute("SELECT target_name,target_index FROM layer_0").fetchall() == [("up/stream", 0)]
         import json
 
-        metadata = json.loads(db.execute("SELECT metadata FROM result_metadata").fetchone()[0])
-        assert metadata["license"] == "CC BY-NC 4.0"
+        metadata, encoded_coverage = db.execute("SELECT metadata, coverage FROM result_metadata").fetchone()
+        assert json.loads(metadata)["license"] == "CC BY-NC 4.0"
+        assert json.loads(encoded_coverage) == {
+            "status": "complete",
+            "declared_completeness": "complete",
+            "cuts_column": None,
+            "cut_counts": {},
+            "unverified_unit_ids": [],
+            "reason": None,
+        }
         assert db.execute("SELECT original_target, adjusted_target FROM result_metadata").fetchone() == (
             geometry.wkb,
             geometry.wkb,
@@ -279,3 +293,46 @@ def test_segmented_network_preserves_nodes_relationships_and_declarations(
         streams, [river, relationships, node_relationships, nodes.slice(0, 1), nodes.slice(1, 1)], strict=True
     ):
         assert actual.equals(expected, check_metadata=True)
+
+
+def test_selection_result_and_batch_export_persist_coverage_diagnostics(tmp_path: Path) -> None:
+    import json
+
+    from shapely.geometry import Point
+
+    from pourpoint.results import BatchIssue, BatchResult, SelectionResult, Target, UpstreamCoverage
+
+    table = pa.table({"id": [4, 3], "geometry": [box(3, 0, 4, 1).wkb, box(2, 0, 3, 1).wkb]})
+    units = [Subbasin(table, 0), Subbasin(table, 1)]
+    coverage = UpstreamCoverage(
+        status="incomplete_and_unverified",
+        declared_completeness="partial",
+        cuts_column="upstream_boundary_cuts",
+        cut_counts={3: 2},
+        unverified_unit_ids=(5,),
+    )
+    selection = SelectionResult(units, coverage, level=1, target=Point(3.5, 0.5), provenance={"fabric_name": "test"})
+    batch = BatchResult(
+        [selection, None],
+        [Target(0, "kept", Point(3.5, 0.5)), Target(1, "failed", Point(9.5, 0.5))],
+        [BatchIssue(1, "failed", "selection.no_coverage", "no coverage")],
+    )
+    folder = QGISBundle().add_result(batch).write(tmp_path / "selection-export")
+    with sqlite3.connect(folder / "vectors.gpkg") as db:
+        assert db.execute("SELECT source_id, target_name FROM layer_0").fetchall() == [(4, "kept"), (3, "kept")]
+        assert db.execute("SELECT target_name, code FROM target_issues").fetchall() == [
+            ("failed", "selection.no_coverage")
+        ]
+        target_name, metadata, encoded_coverage = db.execute(
+            "SELECT target_name, metadata, coverage FROM result_metadata"
+        ).fetchone()
+        assert target_name == "kept"
+        assert json.loads(metadata) == {"fabric_name": "test"}
+        assert json.loads(encoded_coverage) == {
+            "status": "incomplete_and_unverified",
+            "declared_completeness": "partial",
+            "cuts_column": "upstream_boundary_cuts",
+            "cut_counts": {"3": 2},
+            "unverified_unit_ids": [5],
+            "reason": None,
+        }
