@@ -2,16 +2,14 @@
 
 ## Install
 
-Use Python 3.13 or newer and [uv](https://docs.astral.sh/uv/). From an authorized
-checkout of the private Pourpoint repository, run:
+Pourpoint requires Python 3.13 or newer. In your Python project, install the
+package from PyPI with [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
+uv add pourpoint
 ```
 
-Run Python through `uv run python` in that checkout. No PyPI release is required.
-For another Python project, install the checkout as a local dependency with
-`uv add /path/to/pourpoint`.
+Run `uv run python` in that project to use Pourpoint.
 
 ## Choose an HFX bundle
 

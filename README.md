@@ -26,10 +26,8 @@ Requires Python 3.13 or later. With [uv](https://docs.astral.sh/uv/), add Pourpo
 to your project.
 
 ```bash
-uv add "pourpoint==0.5.0rc5"
+uv add pourpoint
 ```
-
-This is a release candidate of the Python rewrite, available for testing before 0.5.0.
 
 ## Use with a coding agent
 
@@ -104,6 +102,12 @@ The point at 47.5596° N, 7.5890° E lies on the Rhine in Basel, Switzerland. We
 use the public [GRIT hydrofabric](https://doi.org/10.1029/2024WR038308) to find its
 watershed and save a QGIS project. Pourpoint reads the required data from the hosted
 HFX bundle, so this example needs an internet connection.
+
+Some flow directions in GRIT v1.0 form loops. In affected watersheds, cells
+that drain into a loop never reach the outlet, so raster refinement can leave
+holes and underestimate the contributing area. For whole upstream sub-basins,
+use `delineate(..., refine=False)`. See the
+[GRIT v1.0 refinement note](https://pourpoint-tools.github.io/operations/#flow-direction-loops-in-grit-v10).
 
 A point chosen on a map can fall slightly beside the hydrofabric's river line.
 We first select nearby rivers and snap the point to the nearest segment within
