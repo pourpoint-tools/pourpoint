@@ -47,6 +47,21 @@ and footprint outputs equivalent, without hole filling or untouched upstream uni
 The outlet cell retains global source-grid row/column, CRS and affine. Its center
 is a display location, not improved station accuracy.
 
+### Flow-direction loops in GRIT v1.0
+
+Where the original GRIT v1.0 drainage-direction rasters were merged, some cells
+point to one another in a loop. Water routed into a loop never reaches the
+outlet. Raster refinement can therefore leave holes in the watershed and
+underestimate its contributing area even when `coverage.status == "complete"`.
+That status describes the upstream connections between source sub-basins.
+To delineate whole upstream sub-basins using those connections, use
+`delineate(..., refine=False)`.
+
+The GRIT maintainer plans to correct the raster merge in v1.1. Once the
+corrected rasters reach the hosted HFX bundle, the planned check repeats
+the delineation at CAMELS gauge `02472000`, where the loops were verified.
+See the [upstream diagnosis and retest plan](https://github.com/pourpoint-tools/hfx/issues/269#issuecomment-7104717277).
+
 ## Batches and failures
 
 Dictionary keys name targets; list entries receive UUIDs once per accepted batch.

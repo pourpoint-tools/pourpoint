@@ -139,7 +139,12 @@ class HydroFabric:
         return self._reader(domain).records(ids, columns=columns)
 
     def candidates(
-        self, domain: str, bounds: BoundingBox, *, levels: Sequence[int] | None = None, columns: Sequence[str] | None = None
+        self,
+        domain: str,
+        bounds: BoundingBox,
+        *,
+        levels: Sequence[int] | None = None,
+        columns: Sequence[str] | None = None,
     ) -> pa.Table:
         """Read conservative bounding-box candidates, not exact intersections.
 
