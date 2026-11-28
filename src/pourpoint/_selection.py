@@ -34,6 +34,10 @@ def _compact_dictionary_values(array: pa.Array) -> pa.Array:
         indices = pc.cast(
             pc.call_function("index_in", [array.indices], options=pc.SetLookupOptions(used)), array.type.index_type
         )
+        if indices.null_count == 0 and indices.buffers()[0] is not None:
+            indices = pa.Array.from_buffers(
+                indices.type, len(indices), [None, indices.buffers()[1]], null_count=0, offset=indices.offset
+            )
         values = _compact_dictionary_values(pc.take(array.dictionary, used))
         return pa.DictionaryArray.from_arrays(indices, values, ordered=array.type.ordered)
     if isinstance(array, pa.ExtensionArray):

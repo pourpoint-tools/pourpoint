@@ -466,11 +466,13 @@ def refine(
     Raises
     ------
     OperationError
-        ``refinement.point_required`` for a nonpoint or empty point geometry,
+        ``refinement.point_required`` for a nonpoint, empty, or non-finite point
+        geometry,
         ``refinement.empty_mask`` for an empty or nonpolygon mask,
         ``refinement.outside_mask`` when the point is not covered,
         ``refinement.missing_rasters`` for an absent raster pair,
-        ``refinement.no_coverage`` for inadequate raster coverage, or
+        ``refinement.no_coverage`` for inadequate raster coverage or
+        out-of-bounds geographic mask extents, or
         ``refinement.no_outlet`` when the local search has no valid masked cell.
         Batches retain these failures as issues with None slots.
     ValueError

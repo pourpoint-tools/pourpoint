@@ -256,7 +256,8 @@ def select_upstream_subbasins(
     Raises
     ------
     OperationError
-        ``selection.invalid_target`` for invalid geometry,
+        ``selection.invalid_target`` for invalid geometry or non-finite /
+        out-of-range coordinates,
         ``selection.no_coverage`` for a nonempty target without coverage,
         ``selection.connectivity_unavailable`` for unsupplied connectivity,
         ``selection.incomplete_coverage`` when visited units have positive cuts,

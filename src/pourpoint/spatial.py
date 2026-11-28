@@ -58,13 +58,16 @@ class RowGroupBounds:
                     self.known_levels[group_id] = True
             stats = [group.column(indices[path]).statistics for path in paths]
             if any(
-                stat is None or not stat.has_min_max or stat.null_count is None or stat.null_count > 0 for stat in stats
+                stat is None
+                or not stat.has_min_max
+                or stat.null_count is None
+                or stat.null_count > 0
+                or not isfinite(float(stat.min))
+                or not isfinite(float(stat.max))
+                for stat in stats
             ):
                 continue
-            values = (stats[0].min, stats[1].min, stats[2].max, stats[3].max)
-            if any(not isfinite(float(v)) for v in values):
-                continue
-            self.bounds[:, group_id] = values
+            self.bounds[:, group_id] = stats[0].min, stats[1].min, stats[2].max, stats[3].max
             self.known_bounds[group_id] = True
 
     @property

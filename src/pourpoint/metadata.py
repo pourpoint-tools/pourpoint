@@ -71,7 +71,7 @@ def _mapping(value: object, name: str) -> Mapping[str, object]:
 def _freeze(value: object) -> object:
     if isinstance(value, Mapping):
         return MappingProxyType({k: _freeze(v) for k, v in value.items()})
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return tuple(_freeze(v) for v in value)
     return value
 

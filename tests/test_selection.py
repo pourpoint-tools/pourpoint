@@ -92,6 +92,11 @@ def test_compact_dictionaries_handles_all_sliced_nested_arrow_types() -> None:
     large_list = pa.LargeListArray.from_arrays(pa.array([0, 1, 2, 3, 4], type=pa.int64()), dictionary).slice(2, 2)
     fixed_size_list = pa.FixedSizeListArray.from_arrays(dictionary, 2).slice(1, 1)
     map_arr = pa.MapArray.from_arrays([0, 1, 2, 3, 4], pa.array(["k0", "k1", "k2", "k3"]), dictionary).slice(2, 2)
+    map_dict_keys = pa.MapArray.from_arrays(
+        [0, 2, 3, 4],
+        pa.DictionaryArray.from_arrays(pa.array([0, 1, 2, 3], type=pa.int8()), pa.array(["u0", "a", "b", "u3"])),
+        pa.array([10, 20, 30, 40]),
+    ).slice(1, 2)
     list_view = pa.Array.from_buffers(
         pa.list_view(dictionary.type),
         4,
@@ -125,6 +130,7 @@ def test_compact_dictionaries_handles_all_sliced_nested_arrow_types() -> None:
         ("large_list", large_list),
         ("fixed_size_list", fixed_size_list),
         ("map", map_arr),
+        ("map_dict_keys", map_dict_keys),
         ("list_view", list_view),
         ("large_list_view", large_list_view),
         ("ree", ree),
