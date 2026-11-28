@@ -401,3 +401,81 @@ def test_selection_preserves_chunk_local_ordered_dictionaries_and_empty_projecti
     assert result["label"].to_pylist() == ["c", "b", "c", "a"]
     assert result.schema.equals(table.schema, check_metadata=True)
     assert take_rows(table.select([]), [3, 0, 3]).num_rows == 3
+
+
+def test_indexed_ipc_batch_cache_and_lru_adjacency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pourpoint.vectors import VectorReader
+
+    with Source(make_spatial_bundle(tmp_path)) as source:
+        reader = VectorReader(source, SpatialManifest.parse(source.read_json("manifest.json")), "catchments")
+        # Multi-hop traverse populates _relationships batch cache and buffer_bytes.
+        assert reader.traverse([40]) == [40, 20, 30, 10]
+        assert reader._relationships is not None
+        assert reader._relationships.buffer_bytes > 0
+        assert reader.buffer_bytes >= reader._relationships.buffer_bytes
+
+        # Repeated lookups hit _IndexedIPC batch cache without calling get_batch again.
+        def fail_get_batch(*args: object, **kwargs: object) -> object:
+            raise AssertionError("batch cache should have served repeated IPC lookup")
+
+        monkeypatch.setattr(reader._relationships._reader, "get_batch", fail_get_batch)
+        assert reader.relationships([10, 40], columns=["upstream_ids"])["upstream_ids"].to_pylist() == [[], [20, 30]]
+
+        # True LRU on _adjacency: accessing an older entry moves it to most-recently-used.
+        reader._adjacency[("upstream_ids", 10)] = ()
+        reader._adjacency[("upstream_ids", 20)] = (10,)
+        reader._adjacency.move_to_end(("upstream_ids", 10), last=False)
+        # Re-traversing 10 should refresh ('upstream_ids', 10) to the end.
+        assert reader.traverse([10]) == [10]
+        assert next(reversed(reader._adjacency)) == ("upstream_ids", 10)
+
+
+def test_candidates_reads_matching_row_groups_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pourpoint.vectors import VectorReader
+
+    with Source(make_spatial_bundle(tmp_path)) as source:
+        reader = VectorReader(source, SpatialManifest.parse(source.read_json("manifest.json")), "catchments")
+        calls: list[tuple[int, list[str] | None]] = []
+        original_read_rg = reader._file.read_row_group
+
+        def tracked_read_rg(group: int, columns: list[str] | None = None, **kwargs: object) -> pa.Table:
+            calls.append((group, columns))
+            return original_read_rg(group, columns=columns, **kwargs)
+
+        monkeypatch.setattr(reader._file, "read_row_group", tracked_read_rg)
+        # Asking only for discovery columns should read each candidate row group once.
+        res_id = reader.candidates((1, 1, 3, 1), columns=["id"])
+        assert res_id["id"].to_pylist() == [30, 10, 20]
+        assert [c[0] for c in calls] == [0, 1]
+
+        res_empty = reader.candidates((1, 1, 3, 1), columns=[])
+        assert res_empty.num_rows == 3
+        assert res_empty.num_columns == 0
+
+        calls.clear()
+        # Asking for extra columns should read discovery once and extra columns (not discovery again) once.
+        res_full = reader.candidates((1, 1, 3, 1), columns=["id", "source_value"])
+        assert res_full["id"].to_pylist() == [30, 10, 20]
+        assert res_full["source_value"].to_pylist() == [3000, None, 2000]
+        assert len(calls) == 4
+        assert calls[1][1] == ["source_value"]
+        assert calls[3][1] == ["source_value"]
+
+
+def test_vectorized_relationships_validation_catches_invalid_lists(tmp_path: Path) -> None:
+    from pourpoint.vectors import VectorReader
+    from tests.spatial_fixture import write_ipc
+
+    path = make_spatial_bundle(tmp_path)
+    rel_path = path / "catchments-relationships.arrow"
+    with pa.memory_map(str(rel_path), "r") as stream:
+        rel_table = pa.ipc.open_file(stream).read_all()
+    # Replace upstream_ids for id=40 ([20, 30]) with unsorted [30, 20]
+    rows = rel_table.to_pylist()
+    rows[-1]["upstream_ids"] = [30, 20]
+    write_ipc(rel_path, pa.Table.from_pylist(rows, schema=rel_table.schema))
+    _refresh(path, "catchments-relationships.arrow")
+    with Source(path) as source:
+        reader = VectorReader(source, SpatialManifest.parse(source.read_json("manifest.json")), "catchments")
+        with pytest.raises(ValueError, match="sorted and unique"):
+            reader.relationships([40])

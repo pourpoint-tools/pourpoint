@@ -411,7 +411,7 @@ def test_external_native_pair(spatial_hfx: Path, external_origin: tuple[str, Ori
     state["files"] = {name: (spatial_hfx / name).read_bytes() for name in ("dir.tif", "acc.tif")}
     manifest = external_manifest(spatial_hfx, url)
     with (
-        Source(url, storage_options={"client_options": {"allow_http": True}}) as source,
+        Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source,
         RasterReader(source, manifest) as reader,
     ):
         request = reader.prepare((0, 0, 4, 2))
@@ -431,7 +431,7 @@ def test_external_raster_identity_rejected(spatial_hfx: Path, external_origin: t
     state["files"] = {name: (spatial_hfx / name).read_bytes() for name in ("dir.tif", "acc.tif")}
     state["files"]["dir.tif"] = b"x" + state["files"]["dir.tif"][1:]
     with (
-        Source(url, storage_options={"client_options": {"allow_http": True}}) as source,
+        Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source,
         RasterReader(source, manifest) as reader,
         pytest.raises(ValueError, match="fingerprint|SHA|digest"),
     ):
@@ -531,7 +531,7 @@ def test_raster_transport_identity_error_during_pixels(
     state["files"] = {name: (spatial_hfx / name).read_bytes() for name in ("dir.tif", "acc.tif")}
     manifest = external_manifest(spatial_hfx, url)
     with (
-        Source(url, storage_options={"client_options": {"allow_http": True}}) as source,
+        Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source,
         RasterReader(source, manifest) as reader,
     ):
         request = reader.prepare((100, 50, 101, 51))
@@ -540,7 +540,7 @@ def test_raster_transport_identity_error_during_pixels(
             reader.read(request)
     state["mode"] = "good"
     with (
-        Source(url, storage_options={"client_options": {"allow_http": True}}) as source,
+        Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source,
         RasterReader(source, manifest) as reader,
     ):
         np.testing.assert_array_equal(reader.read(reader.prepare((100, 50, 101, 51))).direction, [[1]])

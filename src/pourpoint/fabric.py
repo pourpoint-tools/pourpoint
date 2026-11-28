@@ -4,16 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from threading import Lock
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self
 
 import pyarrow as pa
 
 from pourpoint.features import River, RiverNetwork, SourceNode, Subbasin
 from pourpoint.metadata import BoundingBox, SpatialManifest
 from pourpoint.rasters import RasterReader
+from pourpoint.spatial import RowGroupBounds
 from pourpoint.storage import Source, TransferStats
-from pourpoint.vectors import VectorReader
+from pourpoint.vectors import VectorReader, _IPCDirectoryMeta
 
 
 class HydroFabric:
@@ -24,8 +26,10 @@ class HydroFabric:
     source
         Dataset root directory or HTTP(S)/S3 URL containing ``manifest.json``.
     cache
-        Retain acquired original bytes and metadata on disk across lifetimes.
-        Disabling this does not disable bounded in-memory reuse.
+        Persistent disk caching mode: ``"auto"`` (default) enables disk caching
+        for remote sources (HTTP, HTTPS, S3) and disables it for local
+        filesystem paths; ``True`` or ``False`` forces caching on or off.
+        Disabling disk caching does not disable bounded in-memory reuse.
     cache_dir
         Persistent cache location. When omitted, use ``~/Library/Caches/pourpoint``
         on macOS, ``%LOCALAPPDATA%/pourpoint`` on Windows (falling back to
@@ -33,8 +37,9 @@ class HydroFabric:
         platforms (falling back to ``~/.cache/pourpoint``).
     offline
         Require the cached manifest snapshot and cached content without network
-        access. Requires caching; missing content raises rather than returning
-        incomplete results.
+        access. Requires caching to be active (pass ``cache=True`` for local
+        paths since ``"auto"`` disables local disk caching). Missing content
+        raises rather than returning incomplete results.
     storage_options
         Options passed to the remote object store, including S3 credentials or
         endpoint configuration. Local paths do not accept storage options.
@@ -62,7 +67,7 @@ class HydroFabric:
         self,
         source: str | Path,
         *,
-        cache: bool = True,
+        cache: bool | Literal["auto"] = "auto",
         cache_dir: str | Path | None = None,
         offline: bool = False,
         storage_options: Mapping[str, object] | None = None,
@@ -78,6 +83,9 @@ class HydroFabric:
         self._closed = False
         self._vectors: dict[str, VectorReader] = {}
         self._rasters: RasterReader | None = None
+        self._shared_metadata_lock = Lock()
+        self._shared_bounds: dict[str, RowGroupBounds] = {}
+        self._shared_ipc_meta: dict[str, _IPCDirectoryMeta] = {}
         try:
             self.manifest = SpatialManifest.parse(self._source.read_json("manifest.json"))
         except BaseException:
@@ -87,16 +95,33 @@ class HydroFabric:
     def _fork(self) -> HydroFabric:
         """Open independent worker-owned readers against the same pinned snapshot."""
         self._ensure_open()
-        worker = HydroFabric(
+        worker = object.__new__(HydroFabric)
+        worker._location = self._location
+        worker._cache = self._cache
+        worker._cache_dir = self._cache_dir
+        worker._offline = self._offline
+        worker._storage_options = self._storage_options
+        worker._closed = False
+        worker._vectors = {}
+        worker._rasters = None
+        worker._shared_metadata_lock = self._shared_metadata_lock
+        worker._shared_bounds = self._shared_bounds
+        worker._shared_ipc_meta = self._shared_ipc_meta
+        worker._source = Source(
             self._location,
             cache=self._cache,
             cache_dir=self._cache_dir,
             offline=self._offline,
             storage_options=self._storage_options,
+            _shared_cache=self._source._cache,
         )
-        if worker.manifest.declarations != self.manifest.declarations:
+        try:
+            worker.manifest = SpatialManifest.parse(worker._source.read_json("manifest.json"))
+            if worker.manifest.declarations != self.manifest.declarations:
+                raise ValueError("publication changed while starting batch workers")
+        except BaseException:
             worker.close()
-            raise ValueError("publication changed while starting batch workers")
+            raise
         return worker
 
     def _ensure_open(self) -> None:
@@ -106,7 +131,14 @@ class HydroFabric:
     def _reader(self, domain: str) -> VectorReader:
         self._ensure_open()
         if domain not in self._vectors:
-            self._vectors[domain] = VectorReader(self._source, self.manifest, domain)
+            self._vectors[domain] = VectorReader(
+                self._source,
+                self.manifest,
+                domain,
+                shared_bounds=self._shared_bounds,
+                shared_ipc_meta=self._shared_ipc_meta,
+                shared_lock=self._shared_metadata_lock,
+            )
         return self._vectors[domain]
 
     def records(self, domain: str, ids: Sequence[int], *, columns: Sequence[str] | None = None) -> pa.Table:

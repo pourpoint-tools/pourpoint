@@ -22,7 +22,7 @@ def test_materialized_rows_and_relationships_survive_close(tmp_path: Path) -> No
     from pourpoint import HydroFabric
 
     source = make_spatial_bundle(tmp_path / "source")
-    with HydroFabric(source, cache_dir=tmp_path / "cache") as fabric:
+    with HydroFabric(source, cache=True, cache_dir=tmp_path / "cache") as fabric:
         basins = fabric.subbasins([20, 10, 20])
         network = fabric.river_network([20])
         assert fabric.traverse("rivers", [10], relationship="downstream_ids") == [10, 20, 30, 40]
@@ -34,7 +34,7 @@ def test_materialized_rows_and_relationships_survive_close(tmp_path: Path) -> No
     assert [basin.id for basin in basins] == [20, 10, 20]
     assert basins[1].attributes["source_value"] is None
     assert network.relationships["upstream_ids"].to_pylist() == [[10]]
-    with HydroFabric(source, cache_dir=tmp_path / "cache", offline=True) as reopened:
+    with HydroFabric(source, cache=True, cache_dir=tmp_path / "cache", offline=True) as reopened:
         records = reopened.records("catchments", [20, 10, 20])
         for row, basin in enumerate(basins):
             assert records.slice(row, 1).equals(basin.table.slice(basin.row, 1), check_metadata=True)
