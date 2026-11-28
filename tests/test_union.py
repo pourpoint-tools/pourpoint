@@ -163,3 +163,35 @@ def test_subbasins_retain_selected_buffers_without_a_second_gather(
     assert {
         buffer.address for chunk in table["geometry"].chunks for buffer in chunk.buffers() if buffer
     } == selected_buffers
+
+
+def test_union_subbasins_skips_workspace_lock_and_union_all_for_single_or_small(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pyarrow as pa
+    import shapely
+    from shapely.geometry import box
+
+    from pourpoint import _union
+    from pourpoint.features import Subbasin
+    from pourpoint.refinement import merge
+
+    tbl = pa.table({"id": [1, 2], "geometry": [box(0, 0, 1, 1).wkb, box(1, 0, 2, 1).wkb]})
+    parts = [Subbasin(tbl, 0), Subbasin(tbl, 1)]
+
+    orig_union_all = shapely.union_all
+    monkeypatch.setattr(
+        shapely, "union_all", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("unexpected union_all"))
+    )
+    try:
+        single = merge(subbasins=[parts[0]])
+        assert single.equals(box(0, 0, 1, 1))
+    finally:
+        monkeypatch.setattr(shapely, "union_all", orig_union_all)
+
+    # Holding _WORKSPACE must not block small/single-group merges.
+    assert _union._WORKSPACE.acquire(timeout=1)
+    try:
+        assert merge(subbasins=parts).equals(box(0, 0, 2, 1))
+    finally:
+        _union._WORKSPACE.release()

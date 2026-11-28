@@ -111,7 +111,37 @@ def test_batch_worker_bound_context_reuse_and_concurrency(tmp_path: Path, monkey
         result = execute(fabric, identify([Point(i, 1) for i in range(6)]), operation, 2)
     assert result.results == list(range(6))
     assert len(seen) == 2
-    assert all(len(ids) == 3 and len(set(ids)) == 1 for ids in seen.values())
+    assert sum(len(ids) for ids in seen.values()) == 6
+    assert all(len(set(ids)) == 1 for ids in seen.values())
+
+
+def test_batch_dynamic_scheduling_does_not_strand_idle_workers(tmp_path: Path) -> None:
+    import threading
+
+    from pourpoint._batch import execute, identify
+
+    slow_started = threading.Event()
+    fast_done = threading.Event()
+    seen_fast = 0
+    lock = threading.Lock()
+    with HydroFabric(make_spatial_bundle(tmp_path / "source"), cache=False) as fabric:
+
+        def operation(reader: HydroFabric, target_item: object) -> int:
+            nonlocal seen_fast
+            idx = target_item.index  # type: ignore[attr-defined]
+            if idx == 0:
+                slow_started.set()
+                assert fast_done.wait(timeout=1.0)
+                return 0
+            assert slow_started.wait(timeout=1.0)
+            with lock:
+                seen_fast += 1
+                if seen_fast == 5:
+                    fast_done.set()
+            return idx
+
+        result = execute(fabric, identify([Point(i, 1) for i in range(6)]), operation, 2)
+    assert result.results == list(range(6))
 
 
 def test_delineate_composes_selection_and_requested_merge(tmp_path: Path) -> None:

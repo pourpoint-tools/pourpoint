@@ -227,12 +227,13 @@ def merge(
 
     Notes
     -----
-    Large inputs are unioned in bounded groups, using retained HFX physical
-    addresses when available. Grouping does not change the input sequence or
-    source values. Union workspaces are serialized across threads in this
-    process, with up to two group unions active within a workspace. This bounds
-    simultaneous decoding and union work, not retained caller inputs, outputs
-    or total process memory. Independent processes have independent bounds.
+    Large inputs exceeding 5,000 parts are unioned in bounded groups using
+    retained HFX physical addresses when available, inside a process-wide
+    serialized workspace with up to two group unions active at a time. Single
+    valid parts and small groups up to 5,000 parts execute without workspace
+    serialization. This bounds simultaneous large decoding and union work, not
+    retained caller inputs, outputs or total process memory. Independent
+    processes have independent bounds.
     """
     if not subbasins:
         return Polygon()

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 import pyarrow as pa
+import shapely
 from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 
@@ -182,8 +183,10 @@ def _select(
     if declaration is not None and declaration.upstream_cuts_column is not None:
         _validate_cuts_column(fabric._reader("catchments").schema, declaration.upstream_cuts_column)
     table = fabric.candidates("catchments", target.bounds, levels=[level])
+    if not isinstance(target, Point):
+        shapely.prepare(target)
     seeds = sorted(
-        Subbasin(table, row).id for row in range(table.num_rows) if Subbasin(table, row).geometry.intersects(target)
+        Subbasin(table, row).id for row in range(table.num_rows) if target.intersects(Subbasin(table, row).geometry)
     )
     if not seeds:
         raise OperationError("selection.no_coverage", f"no catchment coverage for target at level {level}")
@@ -450,13 +453,18 @@ def delineate(
     ):
         raise ValueError("radius must be finite and nonnegative")
     fabric._ensure_open()
+    snap_index = None
+    if snap_onto is not None:
+        from pourpoint.rivers import _prepare_snap
+
+        snap_index = _prepare_snap(snap_onto)
 
     def one(reader: HydroFabric, geometry: BaseGeometry) -> DelineationResult:
         adjusted = geometry
-        if snap_onto is not None:
-            from pourpoint.rivers import snap
+        if snap_index is not None:
+            from pourpoint.rivers import _snap_point
 
-            adjusted = snap(target=geometry, onto=snap_onto, radius=radius)
+            adjusted = _snap_point(geometry, snap_index, float(radius))
         selection = _select(fabric=reader, target=adjusted, level=level, allow_incomplete=allow_incomplete)
         outlet = None
         rasters = None

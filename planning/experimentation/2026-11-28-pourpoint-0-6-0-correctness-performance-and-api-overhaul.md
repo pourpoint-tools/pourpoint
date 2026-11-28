@@ -113,3 +113,21 @@ After optimizing Track 3 refinement and raster processing in pure Python/NumPy (
 ### Decision
 
 Keep pure Python and NumPy (`Option A`, retaining `py3-none-any` wheels with no Rust extension in production). Track 3's vectorized NumPy/Shapely changes already cut `spain-mainstem` end-to-end runtime by `22.2×` (`5837.8 ms -> 262.6 ms`), `chur-alpine-mainstem` by `8.8×` (`467.5 ms -> 53.4 ms`), and peak Python memory allocations by `39.5%` (`130.04 -> 78.64 MiB`). Adding a native Rust extension (`maturin`/PyO3) would save only `3.8–58.9 ms` end-to-end (`1.29×` on `3.86M` traced cells) while adding multi-platform native wheel builds to CI and PyPI publishing.
+
+## Track 4 — Rivers, Snapping, and Batch Scheduling Benchmark
+
+### Workload and Setup
+
+- Synthetic HFX 0.4.0 bundle (`500` rivers × `20` vertices = `9,500` segments, `500` catchments, `500` nodes, directed `upstream_ids`/`downstream_ids` chains of length 10).
+- Compared `main` (`0e1d11a`) vs `track4` across:
+  - Single-target `snap(target=Point(0.251, 1.051), onto=net, radius=2000)` (median of 5 warm runs).
+  - Batch `delineate(target=30 points, snap_onto=net, radius=3000)` with prepared/reusable `_SnapIndex` and dynamic batch work queue (median of 3 warm runs).
+  - `select_rivers(target=box(0.0, 1.0, 0.4, 1.11), include_downstream=True)` (median of 5 warm runs).
+
+### Observed Results
+
+| Operation | `main_0e1d11a` | `track4` | Speedup | Parity Check |
+| --- | ---: | ---: | ---: | --- |
+| `snap()` (1 target, `9,500` segments) | 492.33 ms | **7.69 ms** | **64.0×** | Exact snapped coords `[0.2495, 1.042]` |
+| `delineate(snap_onto=...)` (`30` targets) | 15,398.81 ms | **66.54 ms** | **231.4×** | `30 / 30` targets succeeded |
+| `select_rivers(include_downstream=True)` | 6.68 ms | **3.65 ms** | **1.83×** | `120 / 120` rivers selected |
