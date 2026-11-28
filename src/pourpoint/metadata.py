@@ -63,7 +63,7 @@ def _string(data: Mapping[str, object], key: str) -> str:
 
 
 def _mapping(value: object, name: str) -> Mapping[str, object]:
-    if not isinstance(value, dict) or not all(isinstance(k, str) for k in value):
+    if not isinstance(value, Mapping) or not all(isinstance(k, str) for k in value):
         raise ValueError(f"manifest {name} must be an object")
     return value
 

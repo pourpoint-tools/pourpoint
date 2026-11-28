@@ -25,7 +25,7 @@ from pourpoint._union import union_subbasins
 from pourpoint.fabric import HydroFabric
 from pourpoint.features import Attributes, Subbasin
 from pourpoint.metadata import bounds
-from pourpoint.rasters import MissingRastersError, RasterCoverageError, RasterGrid, RasterWindow
+from pourpoint.rasters import MissingRastersError, RasterCoverageError, RasterGrid, RasterWindow, _transformer
 from pourpoint.results import BatchResult, OperationError, SelectionResult, Target, UpstreamCoverage
 
 
@@ -138,6 +138,9 @@ class GranularRefinement:
     subbasins
         Nonempty contributing portions in source input order, with unchanged
         source identity and attributes. Geometries use EPSG:4326.
+    geometry
+        Dissolved watershed boundary in EPSG:4326, topologically equivalent to
+        merging ``subbasins``.
     outlet_cell
         Selected source-grid cell, whose geometry uses the native raster CRS.
     rasters
@@ -151,6 +154,7 @@ class GranularRefinement:
         does not recertify the raster output."""
 
     subbasins: list[SubbasinContribution]
+    geometry: Polygon | MultiPolygon
     outlet_cell: OutletCell
     rasters: RefinementRasters
     provenance: Mapping[str, object] = field(default_factory=dict)
@@ -163,7 +167,7 @@ class FootprintRefinement:
 
     Attributes
     ----------
-    footprint
+    geometry
         Polygon or MultiPolygon contribution in EPSG:4326, not a fabricated
         source sub-basin. Equivalent to merging granular refinement of the
         same combined mask and target.
@@ -177,7 +181,7 @@ class FootprintRefinement:
         Explicit source-network coverage assessment (``"not_assessed"`` for
         manually supplied footprints)."""
 
-    footprint: Polygon | MultiPolygon
+    geometry: Polygon | MultiPolygon
     outlet_cell: OutletCell
     rasters: RefinementRasters
     provenance: Mapping[str, object] = field(default_factory=dict)
@@ -240,27 +244,42 @@ def merge(
 
 
 def _trace(window: RasterWindow, mask: npt.NDArray[np.bool_], row: int, col: int) -> npt.NDArray[np.bool_]:
-    selected = np.zeros(mask.shape, dtype=np.bool_)
-    selected[row, col] = True
-    stack = [(row, col)]
-    # Incoming neighbor position is the inverse of its outgoing direction.
-    offsets = ((0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1))
     height, width = mask.shape
-    while stack:
-        row, col = stack.pop()
-        for code, (dy, dx) in enumerate(offsets, 1):
-            y, x = row - dy, col - dx
-            if (
-                0 <= y < height
-                and 0 <= x < width
-                and mask[y, x]
-                and not selected[y, x]
-                and window.direction_valid[y, x]
-                and window.direction[y, x] == code
-            ):
-                selected[y, x] = True
-                stack.append((y, x))
-    return selected
+    stride = width + 2
+    padded_dir = np.zeros((height + 2) * stride, dtype=np.int8)
+    valid_dir = np.where(mask & window.direction_valid, window.direction, np.int8(0))
+    padded_dir.reshape(height + 2, stride)[1:-1, 1:-1] = valid_dir
+    # Incoming neighbor offset is the inverse of its outgoing D8 direction.
+    deltas = (
+        (1, -1),
+        (2, -stride - 1),
+        (3, -stride),
+        (4, -stride + 1),
+        (5, 1),
+        (6, stride + 1),
+        (7, stride),
+        (8, stride - 1),
+    )
+    visited = np.zeros(padded_dir.size, dtype=np.bool_)
+    seed = (row + 1) * stride + (col + 1)
+    visited[seed] = True
+    frontier = np.array([seed], dtype=np.intp)
+    while frontier.size:
+        next_parts: list[npt.NDArray[np.intp]] = []
+        for code, delta in deltas:
+            candidates = frontier + delta
+            hits = candidates[padded_dir[candidates] == code]
+            if hits.size:
+                next_parts.append(hits)
+        if not next_parts:
+            break
+        merged = next_parts[0] if len(next_parts) == 1 else np.concatenate(next_parts)
+        fresh = merged[~visited[merged]]
+        if not fresh.size:
+            break
+        visited[fresh] = True
+        frontier = fresh
+    return np.ascontiguousarray(visited.reshape(height + 2, stride)[1:-1, 1:-1])
 
 
 @overload
@@ -325,7 +344,7 @@ def _refine(
         raise OperationError("refinement.missing_rasters", str(error)) from error
     except RasterCoverageError as error:
         raise OperationError("refinement.no_coverage", str(error)) from error
-    to_native = Transformer.from_crs("EPSG:4326", window.crs, always_xy=True)
+    to_native = _transformer("EPSG:4326", window.crs, from_crs=Transformer.from_crs)
     native_mask = shapely.transform(combined, to_native.transform, interleaved=False)
     mask = geometry_mask([native_mask], out_shape=window.direction.shape, transform=window.transform, invert=True)
     native_point = to_native.transform(target.x, target.y)
@@ -347,11 +366,11 @@ def _refine(
     selected = _trace(window, mask, row, col)
     polygons = [
         shape(geometry)
-        for geometry, value in shapes(selected.astype(np.uint8), mask=selected, transform=window.transform)
+        for geometry, value in shapes(selected.view(np.uint8), mask=selected, transform=window.transform)
         if value == 1
     ]
     native_geometry = shapely.union_all(polygons)
-    to_wgs84 = Transformer.from_crs(window.crs, "EPSG:4326", always_xy=True)
+    to_wgs84 = _transformer(window.crs, "EPSG:4326", from_crs=Transformer.from_crs)
     geometry = _polygonal(
         shapely.transform(native_geometry, to_wgs84.transform, interleaved=False).intersection(combined)
     )
@@ -365,13 +384,18 @@ def _refine(
             fabric.manifest.declarations,
             coverage or _unassessed_footprint_coverage(),
         )
+    shapely.prepare(geometry)
     contributions = []
     for source in subbasins:
-        piece = _polygonal(geometry.intersection(source.geometry))
+        geom = source.geometry
+        if not geometry.intersects(geom):
+            continue
+        piece = _polygonal(geom) if geometry.covers(geom) else _polygonal(geometry.intersection(geom))
         if not piece.is_empty:
             contributions.append(SubbasinContribution(source, piece))
     return GranularRefinement(
         contributions,
+        geometry,
         cell,
         rasters,
         fabric.manifest.declarations,

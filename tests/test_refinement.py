@@ -40,7 +40,8 @@ def test_whole_mask_trace_excludes_downstream_branch_and_preserves_attributes(tm
         result = refine(fabric=fabric, subbasins=units, target=Point(1.5, 0.5), window_size=1)
         merged = refine(fabric=fabric, footprint=merge(subbasins=units), target=Point(1.5, 0.5), window_size=1)
     assert merge(subbasins=result.subbasins).equals(box(0, 0, 2, 1))
-    assert merge(subbasins=result.subbasins).equals(merged.footprint)
+    assert result.geometry.equals(merge(subbasins=result.subbasins))
+    assert merge(subbasins=result.subbasins).equals(merged.geometry)
     assert [p.id for p in result.subbasins] == [10, 20]
     assert result.subbasins[0].attributes["source_id"] == "ten"
     assert (result.outlet_cell.row, result.outlet_cell.col) == (0, 1)
@@ -71,7 +72,7 @@ def test_terminal_or_invalid_cell_does_not_flow_to_neighbor(tmp_path: Path, term
     )
     with HydroFabric(root) as fabric:
         result = refine(fabric=fabric, footprint=box(0, 0, 3, 1), target=Point(2.5, 0.5), window_size=1)
-    assert result.footprint.equals(box(2, 0, 3, 1))
+    assert result.geometry.equals(box(2, 0, 3, 1))
 
 
 def test_mask_hole_breaks_flow_and_local_ties_are_row_major(tmp_path: Path) -> None:
@@ -90,7 +91,7 @@ def test_mask_hole_breaks_flow_and_local_ties_are_row_major(tmp_path: Path) -> N
     with HydroFabric(root) as fabric:
         result = refine(fabric=fabric, footprint=mask, target=Point(2.5, 0.5))
     assert result.outlet_cell.col == 2
-    assert result.footprint.equals(box(2, 0, 3, 1))
+    assert result.geometry.equals(box(2, 0, 3, 1))
     assert result.rasters.direction.mask.tolist() == [[True, False, True, True]]
 
 
@@ -131,8 +132,9 @@ def test_nonzero_window_offset_and_non_aligned_unit_boundaries(tmp_path: Path) -
         merged = refine(fabric=fabric, footprint=merge(subbasins=parts), target=Point(3.5, 1.5), window_size=1)
     assert (granular.outlet_cell.row, granular.outlet_cell.col) == (2, 3)
     assert granular.outlet_cell.geometry.equals(box(3, 1, 4, 2))
-    assert merge(subbasins=granular.subbasins).equals(merged.footprint)
-    assert merged.footprint.equals(box(1.2, 1.2, 3.8, 2))
+    assert granular.geometry.equals(merge(subbasins=granular.subbasins))
+    assert merge(subbasins=granular.subbasins).equals(merged.geometry)
+    assert merged.geometry.equals(box(1.2, 1.2, 3.8, 2))
 
 
 @pytest.mark.parametrize("case", ["coverage", "no_outlet", "invalid_direction"])
@@ -174,7 +176,7 @@ def test_three_by_three_ties_choose_first_source_row_then_column(tmp_path: Path)
     with HydroFabric(root) as fabric:
         result = refine(fabric=fabric, footprint=box(0, 0, 3, 3), target=Point(1.5, 1.5))
     assert (result.outlet_cell.row, result.outlet_cell.col) == (0, 1)
-    assert result.footprint.equals(box(1, 2, 2, 3))
+    assert result.geometry.equals(box(1, 2, 2, 3))
 
 
 def test_merit_terminal_outlets_accept_upstream_flow_and_exclude_nodata(tmp_path: Path) -> None:
@@ -198,13 +200,13 @@ def test_merit_terminal_outlets_accept_upstream_flow_and_exclude_nodata(tmp_path
         mouth = refine(fabric=fabric, footprint=footprint, target=Point(1.5, 1.5), window_size=3)
         depression = refine(fabric=fabric, footprint=footprint, target=Point(1.5, 0.5), window_size=1)
     assert (mouth.outlet_cell.row, mouth.outlet_cell.col) == (0, 1)
-    assert mouth.footprint.equals(box(0, 1, 2, 2).union(box(0, 0, 1, 1)))
+    assert mouth.geometry.equals(box(0, 1, 2, 2).union(box(0, 0, 1, 1)))
     assert mouth.rasters.direction.window.raw_direction is not None
     assert mouth.rasters.direction.window.raw_direction.dtype == np.uint8
     np.testing.assert_array_equal(mouth.rasters.direction.window.raw_direction, direction)
 
     assert (depression.outlet_cell.row, depression.outlet_cell.col) == (1, 1)
-    assert depression.footprint.equals(box(1, 0, 3, 1))
+    assert depression.geometry.equals(box(1, 0, 3, 1))
 
     signed = make_spatial_bundle(tmp_path / "merit-int8")
     signed_manifest_path = signed / "manifest.json"
@@ -223,7 +225,7 @@ def test_merit_terminal_outlets_accept_upstream_flow_and_exclude_nodata(tmp_path
     with HydroFabric(signed) as fabric:
         signed_result = refine(fabric=fabric, footprint=box(0, 0, 3, 1), target=Point(1.5, 0.5), window_size=3)
     assert (signed_result.outlet_cell.row, signed_result.outlet_cell.col) == (0, 1)
-    assert signed_result.footprint.equals(box(0, 0, 2, 1))
+    assert signed_result.geometry.equals(box(0, 0, 2, 1))
     assert signed_result.rasters.direction.window.raw_direction is not None
     assert signed_result.rasters.direction.window.raw_direction.dtype == np.int8
     np.testing.assert_array_equal(signed_result.rasters.direction.window.raw_direction, signed_dir)
@@ -290,3 +292,119 @@ def test_refine_clamps_negative_window_bounds_and_rejects_huge_footprint(tmp_pat
             assert neg_err.value.code == "refinement.no_outlet"
         finally:
             refinement_mod.Transformer.from_crs = orig_from_crs  # type: ignore[method-assign]
+
+
+def test_trace_handles_1x1_winding_paths_mask_boundaries_and_cycles() -> None:
+    from affine import Affine
+    from rasterio.crs import CRS
+
+    import pourpoint.refinement as refinement_mod
+    from pourpoint.rasters import RasterGrid, RasterRequest, RasterWindow
+
+    def make_window(direction: np.ndarray, valid: np.ndarray | None = None) -> RasterWindow:
+        h, w = direction.shape
+        d_valid = np.ones((h, w), dtype=bool) if valid is None else valid
+        aff = Affine(1, 0, 0, 0, -1, float(h))
+        crs = CRS.from_epsg(4326)
+        grid = RasterGrid(crs, aff, w, h, "d", "a")
+        req = RasterRequest(0, 0, w, h, grid, object(), 0)
+        return RasterWindow(
+            direction.astype(np.int8), np.ones((h, w), dtype=np.int32), d_valid, d_valid, aff, crs, "cells", req
+        )
+
+    # 1x1 window
+    w1 = make_window(np.array([[0]]))
+    out1 = refinement_mod._trace(w1, np.array([[True]]), 0, 0)
+    assert out1.flags["C_CONTIGUOUS"]
+    np.testing.assert_array_equal(out1, [[True]])
+
+    # 8-neighbor winding snake + disconnected cycle + mask=False blocker:
+    # Directions: 1:E, 2:SE, 3:S, 4:SW, 5:W, 6:NW, 7:N, 8:NE
+    # Chain: (2,2)->E(1) (2,3)->S(3) (3,3)->W(5) (3,2)->N(7) (2,2) is a cycle!
+    # Separate snake leading into (0,0): (0,2)->W(5) (0,1)->W(5) (0,0), plus (1,0)->N(7) (0,0), plus (1,1)->NW(6) (0,0)
+    dirs = np.array(
+        [
+            [0, 5, 5, 1],
+            [7, 6, 3, 1],
+            [1, 1, 1, 3],
+            [1, 1, 7, 5],
+        ],
+        dtype=np.int8,
+    )
+    mask = np.ones((4, 4), dtype=bool)
+    mask[0, 2] = False  # blocks (0,2) even though it points W to (0,1)
+    # Trace from cycle at (2,2) terminates cleanly without infinite loop
+    cyc = refinement_mod._trace(make_window(dirs), mask, 2, 2)
+    assert cyc.flags["C_CONTIGUOUS"]
+    assert cyc[2, 2] and cyc[2, 3] and cyc[3, 3] and cyc[3, 2]
+    assert not cyc[0, 0]
+
+    # Trace from (0,0): collects (0,0), (0,1), (1,0), (1,1), not (0,2) because masked out
+    head = refinement_mod._trace(make_window(dirs), mask, 0, 0)
+    assert head.flags["C_CONTIGUOUS"]
+    expected = np.zeros((4, 4), dtype=bool)
+    expected[0, 0] = expected[0, 1] = expected[1, 0] = expected[1, 1] = True
+    np.testing.assert_array_equal(head, expected)
+
+
+def test_granular_geometry_equivalence_and_delineate_avoids_double_union(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pourpoint.refinement as refinement_mod
+    from pourpoint import delineate
+
+    root = make_spatial_bundle(tmp_path / "fabric")
+    path = root / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["auxiliary"] = []
+    path.write_text(json.dumps(manifest))
+    dir_arr = np.full((10, 20), 8, dtype="uint8")
+    dir_arr[4, 10] = 0
+    acc_arr = np.ones((10, 20), dtype="int32")
+    acc_arr[4, 10] = 999
+    add_pair(
+        root,
+        encoding="grass",
+        direction=dir_arr,
+        accumulation=acc_arr,
+        transform=from_origin(0.0, 2.0, 0.2, 0.2),
+    )
+
+    union_calls = 0
+    orig_union_subbasins = refinement_mod.union_subbasins
+
+    def counted_union(parts: object, **kwargs: object) -> object:
+        nonlocal union_calls
+        union_calls += 1
+        return orig_union_subbasins(parts, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(refinement_mod, "union_subbasins", counted_union)
+    with HydroFabric(root) as fabric:
+        # Spatial bundle catchments 10=(1..1.25, 1..1.25) and 20=(2..2.25, 1..1.25).
+        # Delineating at Point(2.1, 1.1) with refine=True, merge=True computes the merged mask once
+        # inside refine() and reuses refined.geometry rather than running a second merge().
+        delin = delineate(fabric=fabric, target=Point(2.1, 1.1), refine=True, merge=True)
+        assert union_calls == 1
+        assert delin.geometry is not None
+        assert delin.geometry.equals(merge(subbasins=delin.subbasins))
+        unmerged = delineate(fabric=fabric, target=Point(2.1, 1.1), refine=True, merge=False)
+        assert unmerged.geometry is None
+
+        # Explicitly exercise fully covered, partially clipped, and non-intersecting subbasins:
+        # Outlet at (row=4, col=10) -> [2.0, 2.2] x [1.0, 1.2], incoming from (4,9) -> [1.8, 2.0] x [1.0, 1.2]
+        # and upstream row=4 cols 5..9 ([1.0, 2.0] x [1.0, 1.2]) with constant E=1 direction inside mask.
+        sub_tbl = pa.table(
+            {
+                "id": [101, 102, 103],
+                "geometry": [
+                    box(1.8, 1.0, 2.2, 1.2).wkb,  # covered inside traced x in [1.0, 2.2]
+                    box(1.0, 0.8, 1.8, 1.2).wkb,  # partially clipped vertically
+                    box(3.0, 1.0, 3.6, 1.2).wkb,  # disjoint
+                ],
+            }
+        )
+        units = [Subbasin(sub_tbl, i) for i in range(3)]
+        refined = refine(fabric=fabric, subbasins=units, target=Point(2.1, 1.1), window_size=1)
+        assert [part.id for part in refined.subbasins] == [101, 102]
+        assert refined.geometry.equals(merge(subbasins=refined.subbasins))
+        assert refined.geometry.equals(box(1.0, 1.0, 2.2, 1.2))
