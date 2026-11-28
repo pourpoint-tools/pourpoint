@@ -203,3 +203,65 @@ def test_downstream_endpoint_inference_uses_each_selected_river_row(tmp_path: Pa
     assert rivers[10].geometry.equals(LineString([(0.5, 0), (2, 0)]))
     # River 30 is also reached from river 10, so retain its whole source line.
     assert rivers[30].geometry.equals(LineString([(2, 0), (3, -1), (4, 0)]))
+
+
+def test_select_rivers_validates_inputs_and_skips_orientation_for_wholly_downstream_rivers(tmp_path: Path) -> None:
+    import hashlib
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from shapely.geometry import Polygon
+
+    from pourpoint.results import OperationError
+    from pourpoint.rivers import select_rivers, snap
+    from tests.spatial_fixture import write_ipc
+
+    path = river_publication(tmp_path / "rivers", orientation=0, nodes=False)
+    table = pq.read_table(path / "rivers.parquet")
+    orientations = [1 if rid == 10 else 0 for rid in table["id"].to_pylist()]
+    idx = table.schema.get_field_index("geometry_orientation")
+    table = table.set_column(idx, table.schema.field("geometry_orientation"), pa.array(orientations, type=pa.int8()))
+    pq.write_table(table, path / "rivers.parquet", row_group_size=2)
+
+    manifest = json.loads((path / "manifest.json").read_text())
+    raw = (path / "rivers.parquet").read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    manifest["families"]["rivers"]["data_sha256"] = digest
+    manifest["relationships"]["rivers"]["feature_artifacts"]["rivers"]["data_sha256"] = digest
+    manifest["relationships"]["river_nodes"]["feature_artifacts"]["rivers"]["data_sha256"] = digest
+    with pa.memory_map(str(path / "rivers-lookup.arrow"), "r") as stream:
+        lookup = pa.ipc.open_file(stream).read_all()
+    write_ipc(path / "rivers-lookup.arrow", lookup.replace_schema_metadata({b"hfx:data_sha256": digest.encode()}))
+    for name in ("rivers.parquet", "rivers-lookup.arrow"):
+        b = (path / name).read_bytes()
+        manifest["artifacts"][name] = {
+            "size_bytes": len(b),
+            "sha256": hashlib.sha256(b).hexdigest(),
+            "head_sha256": hashlib.sha256(b[:65536]).hexdigest(),
+            "tail_sha256": hashlib.sha256(b[-65536:]).hexdigest(),
+        }
+    (path / "manifest.json").write_text(json.dumps(manifest))
+
+    footprint = box(0.5, -0.5, 1.5, 0.5).union(box(2.5, -0.8, 3.5, -0.4))
+    with HydroFabric(path, cache=False) as fabric:
+        # River 30 is partially inside footprint, has ambiguous orientation, AND is downstream of river 10.
+        network = select_rivers(fabric=fabric, target=footprint, include_downstream=True)
+        rivers = {r.id: r for r in network.rivers}
+        assert set(rivers) == {10, 20, 30, 40}
+        assert rivers[30].geometry.equals(LineString([(2, 0), (3, -1), (4, 0)]))
+
+        with pytest.raises(TypeError, match="include_downstream"):
+            select_rivers(fabric=fabric, target=footprint, include_downstream=1)  # type: ignore[arg-type]
+
+        bowtie = Polygon([(0, 0), (2, 2), (2, 0), (0, 2), (0, 0)])
+        with pytest.raises(OperationError) as invalid_err:
+            select_rivers(fabric=fabric, target=bowtie)
+        assert invalid_err.value.code == "rivers.invalid_target"
+
+        with pytest.raises(OperationError) as huge_err:
+            select_rivers(fabric=fabric, target=box(0, 0, 1e40, 1))
+        assert huge_err.value.code == "rivers.invalid_target"
+
+    with pytest.raises(ValueError, match="radius"):
+        snap(target=Point(0, 0), onto=LineString([(0, -1), (0, 1)]), radius=True)  # type: ignore[arg-type]

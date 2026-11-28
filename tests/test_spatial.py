@@ -50,3 +50,45 @@ def test_prepared_row_groups_keep_partial_null_leaves(tmp_path: Path) -> None:
     pq.write_table(pa.table({"bbox": pa.array([outside, {**outside, "xmin": None}], type=bbox_type)}), path)
     prepared = RowGroupBounds(pq.ParquetFile(path))
     assert prepared.candidate_groups((0, 0, 1, 1)) == [0]
+
+
+def test_row_group_bounds_and_overlap_treat_nan_and_null_leaves_as_unknown(tmp_path: Path) -> None:
+    import numpy as np
+
+    from pourpoint.spatial import RowGroupBounds, overlap
+
+    bbox_type = pa.struct([pa.field(name, pa.float32()) for name in ("xmin", "ymin", "xmax", "ymax")])
+    table = pa.table(
+        {
+            "bbox": pa.array(
+                [
+                    {"xmin": 10.0, "ymin": 10.0, "xmax": 11.0, "ymax": 11.0},
+                    {"xmin": float("nan"), "ymin": 10.0, "xmax": 11.0, "ymax": 11.0},
+                    {"xmin": None, "ymin": 10.0, "xmax": 11.0, "ymax": 11.0},
+                    None,
+                ],
+                type=bbox_type,
+            )
+        }
+    )
+    path = tmp_path / "nan.parquet"
+    pq.write_table(table, path, row_group_size=2, write_statistics=True)
+    pq_file = pq.ParquetFile(path)
+    # Also verify non-finite Parquet statistics (e.g. from writers emitting NaN min/max) are rejected.
+    from types import SimpleNamespace
+
+    fake_col = SimpleNamespace(statistics=SimpleNamespace(has_min_max=True, null_count=0, min=float("nan"), max=1.0))
+    fake_rg = SimpleNamespace(column=lambda idx: fake_col)
+    fake_schema = SimpleNamespace(
+        column=lambda i: SimpleNamespace(path=("bbox.xmin", "bbox.ymin", "bbox.xmax", "bbox.ymax")[i])
+    )
+    fake_file = SimpleNamespace(
+        num_row_groups=1,
+        schema_arrow=SimpleNamespace(names=["bbox"]),
+        metadata=SimpleNamespace(schema=fake_schema, num_columns=4, row_group=lambda gid: fake_rg),
+    )
+    prepared = RowGroupBounds(fake_file)  # type: ignore[arg-type]
+    assert not prepared.known_bounds[0]
+    assert prepared.candidate_groups((0.0, 0.0, 1.0, 1.0)) == [0]
+    assert np.array_equal(overlap(table, (0.0, 0.0, 1.0, 1.0)), [False, True, True, True])
+    assert pq_file.num_row_groups == 2

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
 from typing import cast
 
+import numpy as np
 import shapely
 from pyproj import Geod
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon
@@ -15,8 +16,10 @@ from shapely.ops import substring
 
 from pourpoint.fabric import HydroFabric
 from pourpoint.features import River, RiverNetwork, Subbasin
+from pourpoint.metadata import bounds
 from pourpoint.refinement import SubbasinContribution
 from pourpoint.results import OperationError
+from pourpoint.spatial import in_float32_range
 
 
 @dataclass(frozen=True)
@@ -128,6 +131,8 @@ def select_rivers(
     ------
     OperationError
         ``rivers.unavailable`` when the river family is absent;
+        ``rivers.invalid_target`` when the target footprint is invalid or has
+        non-finite or out-of-range coordinates;
         ``rivers.connectivity_unavailable`` when extension needs a missing
         ``downstream_ids`` column in supplied relationship data;
         ``rivers.ambiguous_direction`` when a partial
@@ -139,6 +144,8 @@ def select_rivers(
         Invalid level, nonpolygonal nonempty footprint, or downstream flow
         crossing river levels. Integrity errors propagate rather than producing
         a partial network.
+    TypeError
+        Nonboolean ``include_downstream``.
 
     Notes
     -----
@@ -148,14 +155,25 @@ def select_rivers(
     """
     if type(level) is not int or level < 0:
         raise ValueError("level must be a nonnegative integer")
+    if type(include_downstream) is not bool:
+        raise TypeError("include_downstream must be boolean")
     if isinstance(target, BaseGeometry):
         footprint = target
     elif isinstance(target, (Subbasin, SubbasinContribution)):
         footprint = target.geometry
     else:
         footprint = shapely.union_all([part.geometry for part in target])
+    if not footprint.is_valid:
+        raise OperationError("rivers.invalid_target", "river target geometry is invalid")
     if not footprint.is_empty and not isinstance(footprint, (Polygon, MultiPolygon)):
         raise ValueError("river target must be a polygon footprint")
+    if not footprint.is_empty:
+        try:
+            checked_bounds = bounds(footprint.bounds)
+        except ValueError as error:
+            raise OperationError("rivers.invalid_target", str(error)) from error
+        if not in_float32_range(checked_bounds):
+            raise OperationError("rivers.invalid_target", "river target exceeds float32 coordinate range")
     if "rivers" not in fabric.manifest.families:
         raise OperationError("rivers.unavailable", "Source does not supply rivers")
     if footprint.is_empty:
@@ -170,24 +188,24 @@ def select_rivers(
     network = fabric.river_network(list(pieces))
     if include_downstream and pieces:
         declaration = fabric.manifest.relationships.get("rivers", {})
-        columns = cast(dict[str, object], declaration.get("columns", {}))
-        if "downstream_ids" not in columns:
+        columns = declaration.get("columns", {})
+        if not isinstance(columns, Mapping) or "downstream_ids" not in columns:
             raise OperationError(
                 "rivers.connectivity_unavailable", "Source does not supply downstream river connectivity"
             )
+        # A source feature reached through another selected feature is wholly downstream.
+        downstream = {neighbor for row in network.relationships["downstream_ids"].to_pylist() for neighbor in row}
+        reached = (
+            set(fabric.traverse("rivers", sorted(downstream), relationship="downstream_ids")) if downstream else set()
+        )
         for river in network.rivers:
-            if not footprint.covers(river.geometry):
+            if river.id not in reached and not footprint.covers(river.geometry):
                 line = _oriented_line(river, network)
                 clipped = pieces[river.id]
                 positions = [line.project(Point(xy)) for part in shapely.get_parts(clipped) for xy in part.coords]
                 pieces[river.id] = substring(line, min(positions), line.length)
         all_ids = fabric.traverse("rivers", list(pieces), relationship="downstream_ids")
         extended = fabric.river_network(all_ids)
-        # A source feature reached through another selected feature is wholly downstream.
-        downstream = {neighbor for row in network.relationships["downstream_ids"].to_pylist() for neighbor in row}
-        reached = (
-            set(fabric.traverse("rivers", sorted(downstream), relationship="downstream_ids")) if downstream else set()
-        )
         for river in extended.rivers:
             if river.attributes.get("level") != level:
                 raise ValueError("downstream relationship crosses river levels")
@@ -244,7 +262,12 @@ def snap(*, target: BaseGeometry, onto: SnapGeometry, radius: float) -> Point:
         raise OperationError("snap.point_required", "snap target must be a nonempty finite Point")
     if not -180 <= target.x <= 180 or not -90 <= target.y <= 90:
         raise OperationError("snap.point_required", "snap target must use WGS84 longitude/latitude")
-    if not isfinite(radius) or radius < 0:
+    if (
+        isinstance(radius, (bool, np.bool_))
+        or not isinstance(radius, (int, float, np.integer, np.floating))
+        or not isfinite(radius)
+        or radius < 0
+    ):
         raise ValueError("radius must be finite and nonnegative")
     if isinstance(onto, RiverNetwork):
         geometries = [river.geometry for river in onto.rivers]

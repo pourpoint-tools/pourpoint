@@ -25,7 +25,7 @@ def bounds(value: object) -> Bounds:
     if isinstance(value, np.ndarray):
         if value.ndim != 1 or value.shape != (4,):
             raise ValueError("bbox must contain four coordinates")
-    elif not isinstance(value, (list, tuple)) or len(value) != 4:
+    elif isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence) or len(value) != 4:
         raise ValueError("bbox must contain four coordinates")
     if any(
         isinstance(v, (bool, np.bool_)) or not isinstance(v, (int, float, np.floating, np.integer)) or not isfinite(v)
@@ -65,6 +65,14 @@ def _string(data: Mapping[str, object], key: str) -> str:
 def _mapping(value: object, name: str) -> Mapping[str, object]:
     if not isinstance(value, dict) or not all(isinstance(k, str) for k in value):
         raise ValueError(f"manifest {name} must be an object")
+    return value
+
+
+def _freeze(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: _freeze(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(v) for v in value)
     return value
 
 
@@ -271,7 +279,7 @@ class SpatialManifest:
                 target = declaration.get("target_domain")
                 if target not in families or target not in bindings or name not in bindings:
                     raise ValueError(f"{name}.{column}: missing target domain binding")
-            relationships[name] = MappingProxyType(dict(relation))
+            relationships[name] = cast(Mapping[str, object], _freeze(relation))
         connectivity: dict[int, CatchmentConnectivity] = {}
         if "catchment_connectivity" in data:
             raw_connectivity = data["catchment_connectivity"]
@@ -286,6 +294,6 @@ class SpatialManifest:
             MappingProxyType(families),
             MappingProxyType(relationships),
             MappingProxyType(artifacts),
-            MappingProxyType(dict(data)),
+            cast(Mapping[str, object], _freeze(data)),
             MappingProxyType(connectivity),
         )

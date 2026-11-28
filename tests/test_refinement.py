@@ -243,3 +243,50 @@ def test_batch_refinement_rejects_non_selection_result_slots(tmp_path: Path) -> 
         pytest.raises(TypeError, match="SelectionResult"),
     ):
         refine(fabric=fabric, subbasins=bad_batch)  # type: ignore[arg-type]
+
+
+def test_refine_clamps_negative_window_bounds_and_rejects_huge_footprint(tmp_path: Path) -> None:
+    root = make_spatial_bundle(tmp_path / "fabric")
+    path = root / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["auxiliary"] = []
+    path.write_text(json.dumps(manifest))
+    add_pair(
+        root,
+        direction=np.array([[0, 0], [0, 0]], dtype="uint8"),
+        accumulation=np.array([[10, 1], [1, 1]], dtype="int32"),
+        transform=from_origin(0, 2, 1, 1),
+    )
+    with HydroFabric(root) as fabric:
+        # Target slightly north/west of grid origin inside a covered footprint: row=-1, col=-1, window_size=1 -> bottom=0, right=0
+        # Before clamping, bottom=-0/negative could slice from the end of mask. With clamp, row=col=-1 with window_size=1 yields empty slice -> refinement.no_outlet!
+        with pytest.raises(OperationError) as err:
+            refine(fabric=fabric, footprint=box(-2, 0, 2, 4), target=Point(-1.0, 3.0), window_size=1)
+        assert err.value.code == "refinement.no_coverage"
+
+        # Now use a custom transformer / point slightly outside row=0, col=0 within a valid covered footprint (0..2, 0..2):
+        # Point(0.5, 2.5) is outside box(0,0,2,2), so test via huge footprint first:
+        with pytest.raises(OperationError) as huge_err:
+            refine(fabric=fabric, footprint=box(0, 0, 1e40, 1), target=Point(0.5, 0.5))
+        assert huge_err.value.code == "refinement.no_coverage"
+
+        # Simulate a projected coordinate landing at row=-1, col=-1 with window_size=1:
+        # without clamping bottom/right >= 0, mask[0:0] vs mask[0:-1] (at row=-2, window_size=3 -> bottom=0 or row=-3 -> bottom=-1)
+        # wraps around the end of `mask`.
+        import pourpoint.refinement as refinement_mod
+
+        class OffsetTransformer:
+            def transform(self, x: object, y: object, **kwargs: object) -> object:
+                if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                    # Map point to (-2.5, 4.5), which yields col=-3, row=-3 (with window_size=3 -> bottom=-1, right=-1).
+                    return (-2.5, 4.5)
+                return (x, y)
+
+        orig_from_crs = refinement_mod.Transformer.from_crs
+        try:
+            refinement_mod.Transformer.from_crs = staticmethod(lambda *a, **kw: OffsetTransformer())  # type: ignore[method-assign]
+            with pytest.raises(OperationError) as neg_err:
+                refine(fabric=fabric, footprint=box(0, 0, 2, 2), target=Point(0.5, 0.5), window_size=3)
+            assert neg_err.value.code == "refinement.no_outlet"
+        finally:
+            refinement_mod.Transformer.from_crs = orig_from_crs  # type: ignore[method-assign]

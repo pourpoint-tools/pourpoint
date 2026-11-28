@@ -876,3 +876,28 @@ def test_standalone_refinement_preserves_coverage_diagnostics_after_pruning_and_
         "unverified_unit_ids": [],
         "reason": None,
     }
+
+
+def test_out_of_float32_range_targets_fail_target_locally_and_bool_radius_rejected(tmp_path: Path) -> None:
+    from pourpoint import delineate
+
+    source = make_spatial_bundle(tmp_path / "source")
+    huge = Point(1e40, 0)
+    nan_pt = Point(float("nan"), 0)
+    with HydroFabric(source, cache=False) as fabric:
+        for bad in (huge, nan_pt):
+            with pytest.raises(OperationError) as err:
+                select_upstream_subbasins(fabric=fabric, target=bad)
+            assert err.value.code == "selection.invalid_target"
+        batch = select_upstream_subbasins(
+            fabric=fabric,
+            target={"huge": huge, "ok": Point(1.1, 1.1)},
+        )
+        assert batch.results[0] is None
+        assert batch.results[1] is not None
+        assert [(i.index, i.name, i.code) for i in batch.issues] == [(0, "huge", "selection.invalid_target")]
+        del_batch = delineate(fabric=fabric, target={"huge": huge, "ok": Point(1.1, 1.1)})
+        assert del_batch.results[0] is None and del_batch.results[1] is not None
+        assert [(i.index, i.name, i.code) for i in del_batch.issues] == [(0, "huge", "selection.invalid_target")]
+        with pytest.raises(ValueError, match="radius"):
+            delineate(fabric=fabric, target=Point(1.1, 1.1), radius=True)  # type: ignore[arg-type]

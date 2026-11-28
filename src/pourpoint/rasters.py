@@ -202,7 +202,7 @@ class _Declaration:
     def parse(cls, entry: Mapping[str, object]) -> Self:
         data = entry.get("metadata")
         artifacts = entry.get("artifacts")
-        if not isinstance(data, dict) or not isinstance(artifacts, dict):
+        if not isinstance(data, Mapping) or not isinstance(artifacts, Mapping):
             raise ValueError("invalid D8 raster declaration")
         crs = data.get("crs")
         encoding, units = data.get("flow_dir_encoding"), data.get("flow_acc_units")
@@ -219,7 +219,7 @@ class _Declaration:
             if isinstance(reference, str):
                 artifact_path(reference)
             elif not (
-                isinstance(reference, dict)
+                isinstance(reference, Mapping)
                 and set(reference) == {"external"}
                 and isinstance(reference["external"], str)
             ):
@@ -283,7 +283,9 @@ class RasterReader:
         if not isinstance(entries, (list, tuple)):
             raise ValueError("invalid raster auxiliary declarations")
         self._declarations = tuple(
-            _Declaration.parse(e) for e in entries if isinstance(e, dict) and e.get("schema") == "hfx.aux.d8_raster.v2"
+            _Declaration.parse(e)
+            for e in entries
+            if isinstance(e, Mapping) and e.get("schema") == "hfx.aux.d8_raster.v2"
         )
         self._bands: dict[str, tuple[Source, str, Fingerprint]] = {}
         self._pairs: dict[int, _Pair] = {}
@@ -316,8 +318,8 @@ class RasterReader:
                 result = self._source, reference, self._manifest.artifacts[reference]
             else:
                 external = self._manifest.declarations.get("external_artifacts")
-                entry = external.get(reference["external"]) if isinstance(external, dict) else None
-                if not isinstance(entry, dict) or not isinstance(entry.get("url"), str):
+                entry = external.get(reference["external"]) if isinstance(external, Mapping) else None
+                if not isinstance(entry, Mapping) or not isinstance(entry.get("url"), str):
                     raise ValueError("missing external raster identity")
                 url = urlsplit(entry["url"])
                 retention = entry.get("retention")

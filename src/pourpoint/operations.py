@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, cast, overload
 
 if TYPE_CHECKING:
     from pourpoint.refinement import SubbasinContribution
     from pourpoint.rivers import SnapGeometry
 
+import numpy as np
 import pyarrow as pa
 from shapely.geometry import Point
 from shapely.geometry.base import BaseGeometry
@@ -17,6 +18,7 @@ from shapely.geometry.base import BaseGeometry
 from pourpoint._batch import Targets, execute, identify, workers
 from pourpoint.fabric import HydroFabric
 from pourpoint.features import Subbasin
+from pourpoint.metadata import bounds
 from pourpoint.results import (
     BatchResult,
     CoverageStatus,
@@ -26,6 +28,7 @@ from pourpoint.results import (
     SelectionResult,
     UpstreamCoverage,
 )
+from pourpoint.spatial import in_float32_range
 
 
 def _level(level: int) -> None:
@@ -131,6 +134,12 @@ def _select(
         )
     if not target.is_valid:
         raise OperationError("selection.invalid_target", "target geometry is invalid")
+    try:
+        checked_bounds = bounds(target.bounds)
+    except ValueError as error:
+        raise OperationError("selection.invalid_target", str(error)) from error
+    if not in_float32_range(checked_bounds):
+        raise OperationError("selection.invalid_target", "target geometry exceeds float32 coordinate range")
     declaration = fabric.manifest.catchment_connectivity.get(level)
     if declaration is not None and declaration.status == "not_supplied":
         raise OperationError(
@@ -138,7 +147,7 @@ def _select(
         )
     rel_declaration = fabric.manifest.relationships.get("catchments", {})
     columns = rel_declaration.get("columns", {})
-    if not isinstance(columns, dict) or "upstream_ids" not in columns:
+    if not isinstance(columns, Mapping) or "upstream_ids" not in columns:
         raise OperationError("selection.connectivity_unavailable", "upstream connectivity is not supplied")
     pre_coverage: UpstreamCoverage | None = None
     if declaration is None or declaration.completeness is None:
@@ -247,7 +256,8 @@ def select_upstream_subbasins(
     Raises
     ------
     OperationError
-        ``selection.invalid_target`` for invalid geometry,
+        ``selection.invalid_target`` for invalid geometry or non-finite /
+        out-of-range coordinates,
         ``selection.no_coverage`` for a nonempty target without coverage,
         ``selection.connectivity_unavailable`` for unsupplied connectivity,
         ``selection.incomplete_coverage`` when visited units have positive cuts,
@@ -406,7 +416,12 @@ def delineate(
         raise TypeError("refine and merge must be boolean")
     if type(allow_incomplete) is not bool:
         raise TypeError("allow_incomplete must be boolean")
-    if not math.isfinite(radius) or radius < 0:
+    if (
+        isinstance(radius, (bool, np.bool_))
+        or not isinstance(radius, (int, float, np.integer, np.floating))
+        or not math.isfinite(radius)
+        or radius < 0
+    ):
         raise ValueError("radius must be finite and nonnegative")
     fabric._ensure_open()
 
