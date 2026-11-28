@@ -100,7 +100,7 @@ def test_local_bounded_and_close(tmp_path: Path) -> None:
 
 def test_http_pinned_selective(origin: tuple[str, OriginState]) -> None:
     url, state = origin
-    with Source(url, storage_options={"client_options": {"allow_http": True}}) as source:
+    with Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source:
         stream = source.open_artifact("file", fingerprint(state["data"]), bounded=True)
         stream.seek(300000)
         assert stream.read(17) == state["data"][300000:300017]
@@ -113,7 +113,7 @@ def test_http_pinned_selective(origin: tuple[str, OriginState]) -> None:
 def test_reject_bad_range(origin: tuple[str, OriginState], mode: str) -> None:
     url, state = origin
     with Source(
-        url, storage_options={"client_options": {"allow_http": True}, "retry_config": {"max_retries": 0}}
+        url, storage_options={"client_options": {"allow_http": True}, "retry_config": {"max_retries": 0}}, cache=False
     ) as source:
         stream = source.open_artifact("file", fingerprint(state["data"]))
         state["mode"] = mode
@@ -139,12 +139,12 @@ def test_s3_configured_endpoint_and_source_isolation(origin: tuple[str, OriginSt
         "config": {"endpoint": url, "region": "us-east-1", "access_key_id": "fixture", "secret_access_key": "fixture"},
         "client_options": {"allow_http": True},
     }
-    with Source("s3://fixture/root", storage_options=options) as source:
+    with Source("s3://fixture/root", storage_options=options, cache=False) as source:
         stream = source.open_artifact("file", fingerprint(state["data"]), bounded=True)
         stream.seek(300000)
         assert stream.read(17) == state["data"][300000:300017]
         options["config"]["endpoint"] = url + "/different"
-        with Source("s3://fixture/root", storage_options=options) as other:
+        with Source("s3://fixture/root", storage_options=options, cache=False) as other:
             assert source.identity != other.identity
 
 
@@ -201,7 +201,7 @@ def test_arrow_adapters_read_selected_blocks(origin: tuple[str, OriginState], fo
             else:
                 writer.write_table(table)
     state["data"] = sink.getvalue().to_pybytes()
-    with Source(url, storage_options={"client_options": {"allow_http": True}}) as source:
+    with Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source:
         if format_name == "ipc":
             reader = pa.ipc.open_file(source.open_artifact("file", fingerprint(state["data"]), bounded=True))
             selected = reader.get_batch(7)
@@ -229,11 +229,11 @@ def test_bounded_digest_and_changed_local_file(tmp_path: Path) -> None:
 def test_http_manifest_revalidation_and_snapshot(origin: tuple[str, OriginState]) -> None:
     url, state = origin
     state["data"] = b'{"snapshot": 1}'
-    with Source(url, storage_options={"client_options": {"allow_http": True}}) as source:
+    with Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source:
         assert source.read_json("manifest.json") == {"snapshot": 1}
         state["data"] = b'{"snapshot": 2}'
         assert source.read_json("manifest.json") == {"snapshot": 1}
-    with Source(url, storage_options={"client_options": {"allow_http": True}}) as source:
+    with Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source:
         assert source.read_json("manifest.json") == {"snapshot": 2}
     assert state["cache_controls"] == ["no-cache", "no-cache"]
 
@@ -319,9 +319,11 @@ def test_persistent_overlap_and_offline_snapshot(
     options = {"client_options": {"allow_http": True}}
     with Source(url, storage_options=options, cache=True, cache_dir=tmp_path) as source:
         assert source.read_json("manifest.json") == {"snapshot": 1}
-        assert source.read_ranges("file", mark, [(100, 200)]) == [data[100:200]]
+        source.open_artifact("file", mark)
+        identity = source._files["file"].identity
+        assert source._range("file", identity, 100, 200) == data[100:200]
         before = source.stats.transferred_bytes
-        assert source.read_ranges("file", mark, [(150, 250)]) == [data[150:250]]
+        assert source._range("file", identity, 150, 250) == data[150:250]
         assert source.stats.transferred_bytes - before == 50
         assert source.stats.cache_hit_bytes == 50
 
@@ -332,10 +334,12 @@ def test_persistent_overlap_and_offline_snapshot(
     monkeypatch.setattr(obstore, "get", no_network)
     with Source(url, storage_options=options, cache=True, cache_dir=tmp_path, offline=True) as source:
         assert source.read_json("manifest.json") == {"snapshot": 1}
-        assert source.read_ranges("file", mark, [(100, 250)]) == [data[100:250]]
+        source.open_artifact("file", mark)
+        identity = source._files["file"].identity
+        assert source._range("file", identity, 100, 250) == data[100:250]
         assert source.stats.requests == 0
         with pytest.raises(ValueError, match="offline.*missing"):
-            source.read_ranges("file", mark, [(250, 300)])
+            source._range("file", identity, 250, 300)
 
 
 def test_cache_snapshot_and_artifact_identity(origin: tuple[str, OriginState], tmp_path: Path) -> None:
@@ -345,32 +349,39 @@ def test_cache_snapshot_and_artifact_identity(origin: tuple[str, OriginState], t
     options = {"client_options": {"allow_http": True}, "retry_config": {"max_retries": 0}}
     with Source(url, storage_options=options, cache=True, cache_dir=tmp_path) as source:
         assert source.read_json("manifest.json") == {"snapshot": 1}
-        assert source.read_ranges("file", fingerprint(b"first"), [(0, 5)]) == [b"first"]
+        assert source.open_artifact("file", fingerprint(b"first")).read() == b"first"
     state["files"] = {"manifest.json": b'{"snapshot": 2}', "file": b"other"}
     with Source(url, storage_options=options, cache=True, cache_dir=tmp_path) as source:
         assert source.read_json("manifest.json") == {"snapshot": 1}
-        assert source.read_ranges("file", fingerprint(b"other"), [(0, 5)]) == [b"other"]
+        assert source.open_artifact("file", fingerprint(b"other")).read() == b"other"
     with Source(url, storage_options=options, cache=True, cache_dir=tmp_path, offline=True) as source:
-        assert source.read_ranges("file", fingerprint(b"first"), [(0, 5)]) == [b"first"]
+        assert source.open_artifact("file", fingerprint(b"first")).read() == b"first"
 
 
-def test_concurrent_ranges_preserve_checks(origin: tuple[str, OriginState], tmp_path: Path) -> None:
+def test_concurrent_prefetch_preserves_checks(origin: tuple[str, OriginState], tmp_path: Path) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
     url, state = origin
-    data = state["data"]
+    sink = pa.BufferOutputStream()
+    table = pa.table({"id": list(range(50000)), "payload": [bytes([i % 256]) * 40 for i in range(50000)]})
+    pq.write_table(table, sink, compression=None, use_dictionary=False)
+    state["data"] = sink.getvalue().to_pybytes()
+    mark = fingerprint(state["data"])
     options = {"client_options": {"allow_http": True}, "retry_config": {"max_retries": 0}}
     with Source(url, storage_options=options, cache=True, cache_dir=tmp_path) as source:
-        ranges = [(100, 150), (10000, 10040), (50000, 50100)]
-        assert source.read_ranges("file", fingerprint(data), ranges, max_workers=2) == [data[a:b] for a, b in ranges]
-        assert source.stats.requests == 4
-        assert source.stats.transferred_bytes == 190
+        source.open_artifact("file", mark)
+        identity = source._files["file"].identity
+        assert source._range("file", identity, 100, 150) == state["data"][100:150]
         state["mode"] = "etag"
         with pytest.raises(ValueError, match="ETag"):
-            source.read_ranges("file", fingerprint(data), [(60000, 60100)])
+            source._range("file", identity, 200, 300)
     with (
         Source(url, storage_options=options, cache=True, cache_dir=tmp_path, offline=True) as source,
         pytest.raises(ValueError, match="offline.*missing"),
     ):
-        source.read_ranges("file", fingerprint(data), [(60000, 60100)])
+        source.open_artifact("file", mark)
+        source._range("file", source._files["file"].identity, 200, 300)
 
 
 def test_prefetch_projects_parquet_chunks(origin: tuple[str, OriginState], tmp_path: Path) -> None:
@@ -401,7 +412,8 @@ def test_cached_interior_corruption_rejected(origin: tuple[str, OriginState], tm
     mark = fingerprint(state["data"])
     options = {"client_options": {"allow_http": True}}
     with Source(url, storage_options=options, cache=True, cache_dir=tmp_path) as source:
-        source.read_ranges("file", mark, [(100000, 100100)])
+        source.open_artifact("file", mark)
+        source._range("file", source._files["file"].identity, 100000, 100100)
     database = next(tmp_path.rglob("ranges.sqlite3"))
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE ranges SET data = ?", (b"x" * 100,))
@@ -409,17 +421,21 @@ def test_cached_interior_corruption_rejected(origin: tuple[str, OriginState], tm
         Source(url, storage_options=options, cache=True, cache_dir=tmp_path, offline=True) as source,
         pytest.raises(ValueError, match="cached range SHA-256"),
     ):
-        source.read_ranges("file", mark, [(100020, 100030)])
+        source.open_artifact("file", mark)
+        source._range("file", source._files["file"].identity, 100020, 100030)
 
 
-def test_concurrent_overlapping_batch_reuses_bytes(origin: tuple[str, OriginState], tmp_path: Path) -> None:
+def test_overlapping_ranges_reuse_cached_bytes(origin: tuple[str, OriginState], tmp_path: Path) -> None:
     url, state = origin
     data = state["data"]
     with Source(
         url, storage_options={"client_options": {"allow_http": True}}, cache=True, cache_dir=tmp_path
     ) as source:
-        ranges = [(100, 200), (150, 250), (100, 200)]
-        assert source.read_ranges("file", fingerprint(data), ranges) == [data[a:b] for a, b in ranges]
+        source.open_artifact("file", fingerprint(data))
+        identity = source._files["file"].identity
+        assert source._range("file", identity, 100, 200) == data[100:200]
+        assert source._range("file", identity, 150, 250) == data[150:250]
+        assert source._range("file", identity, 100, 200) == data[100:200]
         assert source.stats.transferred_bytes == 150
 
 
@@ -439,6 +455,7 @@ def test_external_cross_origin_does_not_forward_credentials(tmp_path: Path) -> N
     with Source(
         "https://dataset.example/root",
         storage_options={"client_options": {"default_headers": {"Authorization": "secret"}}},
+        cache=False,
     ) as source:
         same, _ = source.external("https://dataset.example/other/file")
         other, _ = source.external("https://raster.example/file")
@@ -475,7 +492,7 @@ def test_bounded_zero_byte_and_single_read_small_artifacts(origin: tuple[str, Or
     small_fp = fingerprint(small)
     state["files"] = {"empty.bin": b"", "small.bin": small}
     options = {"client_options": {"allow_http": True}}
-    with Source(url, storage_options=options) as source:
+    with Source(url, storage_options=options, cache=False) as source:
         stream = source.open_artifact("empty.bin", empty_fp, bounded=True)
         assert stream.read() == b""
         assert state["requests"] == []
@@ -483,5 +500,148 @@ def test_bounded_zero_byte_and_single_read_small_artifacts(origin: tuple[str, Or
         assert len(state["requests"]) == 1
         assert small_stream.read() == small
     bad_empty = Fingerprint(0, empty_fp.sha256, "0" * 64, empty_fp.tail_sha256)
-    with Source(url, storage_options=options) as source, pytest.raises(ValueError, match="bounded SHA-256"):
+    with (
+        Source(url, storage_options=options, cache=False) as source,
+        pytest.raises(ValueError, match="bounded SHA-256"),
+    ):
         source.open_artifact("empty.bin", bad_empty, bounded=True)
+
+
+def test_auto_cache_default_remote_vs_local_and_external(origin: tuple[str, OriginState], tmp_path: Path) -> None:
+    from pourpoint import HydroFabric
+    from tests.spatial_fixture import make_spatial_bundle
+
+    local = make_spatial_bundle(tmp_path / "local")
+    with HydroFabric(local) as fabric:
+        assert not fabric._source.cache
+        assert fabric._source._cache is None
+    with pytest.raises(ValueError, match="cache=True"):
+        HydroFabric(local, offline=True)
+
+    with Source(local, cache="auto", cache_dir=tmp_path / "ext-cache") as local_src:
+        assert not local_src.cache
+        remote_child, _ = local_src.external("https://example.com/dir.tif")
+        assert remote_child.cache is True
+    with Source(local, cache=False, cache_dir=tmp_path / "ext-cache") as uncached_src:
+        remote_child, _ = uncached_src.external("https://example.com/dir.tif")
+        assert remote_child.cache is False
+
+    url, state = origin
+    state["files"] = {p.name: p.read_bytes() for p in local.iterdir() if p.is_file()}
+    with HydroFabric(
+        url, storage_options={"client_options": {"allow_http": True}}, cache_dir=tmp_path / "remote-cache"
+    ) as remote_fabric:
+        assert remote_fabric._source.cache is True
+        assert remote_fabric.records("catchments", [10])["id"].to_pylist() == [10]
+
+
+def test_local_cache_survives_touch_copy_and_legacy_local_stat(tmp_path: Path) -> None:
+    import json
+    import shutil
+    import sqlite3
+
+    from tests.spatial_fixture import make_spatial_bundle
+
+    src_dir = make_spatial_bundle(tmp_path / "bundle")
+    cache_dir = tmp_path / "cache"
+    data = (src_dir / "catchments.parquet").read_bytes()
+    fp = fingerprint(data)
+    with Source(src_dir, cache=True, cache_dir=cache_dir) as source:
+        assert source.open_artifact("catchments.parquet", fp, bounded=True).read() == data
+
+    # Verify local_stat is NOT persisted in SQLite metadata.
+    db_path = next(cache_dir.rglob("ranges.sqlite3"))
+    with sqlite3.connect(db_path) as db:
+        raw_ident = json.loads(db.execute("SELECT value FROM metadata WHERE key LIKE 'identity:%'").fetchone()[0])
+        assert "local_stat" not in raw_ident
+        # Inject legacy v0.5.0 stale local_stat and ensure reopening ignores it cleanly.
+        raw_ident["local_stat"] = [1, 2, 3, 4]
+        db.execute(
+            "UPDATE metadata SET value = ? WHERE key LIKE 'identity:%'",
+            (json.dumps(raw_ident).encode(),),
+        )
+
+    # Touch and copy the identical bundle; opening must still succeed.
+    (src_dir / "catchments.parquet").write_bytes(data)
+    copied = tmp_path / "bundle_copy"
+    shutil.copytree(src_dir, copied)
+    with Source(src_dir, cache=True, cache_dir=cache_dir) as reopened:
+        assert reopened.open_artifact("catchments.parquet", fp, bounded=True).read() == data
+        # Within-session mutation must still raise.
+        (src_dir / "catchments.parquet").write_bytes(b"corrupted" + data[9:])
+        with pytest.raises(ValueError, match="changed"):
+            reopened.check_artifact("catchments.parquet")
+
+
+def test_prefetch_parquet_skips_cached_ranges_without_double_counting(
+    origin: tuple[str, OriginState], tmp_path: Path
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    url, state = origin
+    sink = pa.BufferOutputStream()
+    table = pa.table({"id": list(range(256)), "payload": [bytes([i % 256]) * 16 for i in range(256)]})
+    pq.write_table(table, sink, compression=None, use_dictionary=False)
+    state["data"] = sink.getvalue().to_pybytes()
+    mark = fingerprint(state["data"])
+    cache_dir = tmp_path / "cache"
+    opts = {"client_options": {"allow_http": True}}
+
+    with Source(url, storage_options=opts, cache=True, cache_dir=cache_dir) as cold:
+        cold.prefetch_parquet("file", mark, 0, ["id"])
+        assert cold.stats.cache_hit_bytes == 0
+        before_read_hits = cold.stats.cache_hit_bytes
+        cold.parquet("file", mark).read_row_group(0, columns=["id"])
+        assert cold.stats.cache_hit_bytes > before_read_hits
+
+    reqs_before = len(state["requests"])
+    with Source(url, storage_options=opts, cache=True, cache_dir=cache_dir) as warm:
+        reader = warm.parquet("file", mark)
+        hits_after_open = warm.stats.cache_hit_bytes
+        warm.prefetch_parquet("file", mark, 0, ["id"])
+        assert warm.stats.cache_hit_bytes == hits_after_open
+        assert len(state["requests"]) == reqs_before
+        reader.read_row_group(0, columns=["id"])
+        assert len(state["requests"]) == reqs_before
+        assert warm.stats.cache_hit_bytes > hits_after_open
+        assert warm.stats.cache_hit_bytes <= hits_after_open + len(state["data"])
+
+
+def test_prefetch_parquet_failure_cancels_pending_and_closes_cleanly(
+    origin: tuple[str, OriginState], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    url, state = origin
+    sink = pa.BufferOutputStream()
+    table = pa.table({"id": list(range(100)), "payload": [b"x" * 90_000 for _ in range(100)]})
+    pq.write_table(table, sink, compression=None, use_dictionary=False)
+    state["data"] = sink.getvalue().to_pybytes()
+    mark = fingerprint(state["data"])
+    opts = {"client_options": {"allow_http": True}}
+
+    entered = threading.Event()
+    calls = 0
+    call_lock = threading.Lock()
+
+    with Source(url, storage_options=opts, cache=True, cache_dir=tmp_path / "cache") as source:
+        source.range_workers = 2
+
+        def failing_fetch(path: str, identity: object, start: int, end: int) -> bytes:
+            nonlocal calls
+            with call_lock:
+                calls += 1
+                idx = calls
+            if idx == 1:
+                entered.set()
+                raise RuntimeError("injected range fetch failure")
+            entered.wait(timeout=2.0)
+            return b"\x00" * (end - start)
+
+        monkeypatch.setattr(source, "_fetch_range", failing_fetch)
+        with pytest.raises(RuntimeError, match="injected range fetch failure"):
+            source.prefetch_parquet("file", mark, 0, ["id", "payload"])
+        source.close()
+        assert source._executor is None

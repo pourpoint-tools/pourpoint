@@ -37,7 +37,7 @@ def test_batch_identity_partial_failure_and_duplicate_targets(tmp_path: Path) ->
     from pourpoint.results import BatchResult
 
     source = make_spatial_bundle(tmp_path / "source")
-    with HydroFabric(source, cache_dir=tmp_path / "cache") as fabric:
+    with HydroFabric(source, cache=True, cache_dir=tmp_path / "cache") as fabric:
         result = select_upstream_subbasins(
             fabric=fabric, target={"a": Point(2.1, 1.1), "bad": Point(9, 9), "b": Point(2.1, 1.1)}, n_jobs=2
         )
@@ -54,7 +54,7 @@ def test_batch_identity_partial_failure_and_duplicate_targets(tmp_path: Path) ->
         first = select_upstream_subbasins(fabric=fabric, target=[Point(1.1, 1.1), Point(1.1, 1.1)], n_jobs=1)
         second = select_upstream_subbasins(fabric=fabric, target=[Point(1.1, 1.1)], n_jobs=1)
         assert len({t.name for t in first.targets + second.targets}) == 3
-    with HydroFabric(source, cache_dir=tmp_path / "cache", offline=True) as fabric:
+    with HydroFabric(source, cache=True, cache_dir=tmp_path / "cache", offline=True) as fabric:
         replay = select_upstream_subbasins(fabric=fabric, target={"a": Point(2.1, 1.1)}, n_jobs=2)
         assert replay.results[0] is not None
         assert [u.id for u in replay.results[0].subbasins] == [20, 10]
@@ -901,3 +901,21 @@ def test_out_of_float32_range_targets_fail_target_locally_and_bool_radius_reject
         assert [(i.index, i.name, i.code) for i in del_batch.issues] == [(0, "huge", "selection.invalid_target")]
         with pytest.raises(ValueError, match="radius"):
             delineate(fabric=fabric, target=Point(1.1, 1.1), radius=True)  # type: ignore[arg-type]
+
+
+def test_fork_workers_coordinate_sqlite_wal_and_shared_metadata(tmp_path: Path) -> None:
+    import sqlite3
+
+    source = make_spatial_bundle(tmp_path / "source")
+    cache_dir = tmp_path / "cache"
+    with HydroFabric(source, cache=True, cache_dir=cache_dir) as fabric:
+        targets = {f"p{i}": Point(1.1 + (i % 2), 1.1) for i in range(8)}
+        batch = select_upstream_subbasins(fabric=fabric, target=targets, n_jobs=4)
+        assert len(batch.issues) == 0
+        assert all(slot is not None for slot in batch.results)
+        assert fabric.stats.requests > 0
+        # Parent cache remains open and usable after worker forks close.
+        assert fabric.records("catchments", [10])["id"].to_pylist() == [10]
+    db_path = next(cache_dir.rglob("ranges.sqlite3"))
+    with sqlite3.connect(db_path) as db:
+        assert db.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"

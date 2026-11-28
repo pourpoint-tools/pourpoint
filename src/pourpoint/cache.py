@@ -13,8 +13,11 @@ class RangeCache:
         directory = directory / source
         directory.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
-        self._db = sqlite3.connect(directory / "ranges.sqlite3", check_same_thread=False)
+        self._db = sqlite3.connect(directory / "ranges.sqlite3", timeout=30.0, check_same_thread=False)
         self._db.executescript("""
+            PRAGMA busy_timeout = 30000;
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
             CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value BLOB NOT NULL);
             CREATE TABLE IF NOT EXISTS ranges (
                 key TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL,
@@ -45,6 +48,25 @@ class RangeCache:
                 raise ValueError("cached range SHA-256 mismatch")
             result.append((offset, bytes(data)))
         return result
+
+    def missing_ranges(self, key: str, start: int, end: int) -> list[tuple[int, int]]:
+        """Return uncovered sub-intervals of [start, end) without reading or hashing BLOBs."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT start, end FROM ranges WHERE key = ? AND start < ? AND end > ? ORDER BY start",
+                (key, end, start),
+            ).fetchall()
+        missing: list[tuple[int, int]] = []
+        position = start
+        for row_start, row_end in rows:
+            if position >= end:
+                break
+            if row_start > position:
+                missing.append((position, min(row_start, end)))
+            position = max(position, row_end)
+        if position < end:
+            missing.append((position, end))
+        return missing
 
     def put(self, key: str, start: int, data: bytes) -> None:
         with self._lock, self._db:

@@ -12,12 +12,12 @@ import json
 import os
 import sys
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
 from threading import Lock
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, BinaryIO, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Literal, cast
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 from weakref import WeakSet
@@ -136,17 +136,20 @@ class Source:
         *,
         storage_options: Mapping[str, Any] | None = None,
         cache_dir: str | Path | None = None,
-        cache: bool = False,
+        cache: bool | Literal["auto"] = "auto",
         offline: bool = False,
+        _shared_cache: RangeCache | None = None,
     ) -> None:
-        if offline and not cache:
-            raise ValueError("offline access requires cache=True")
+        if cache != "auto" and type(cache) is not bool:
+            raise ValueError("cache must be True, False, or 'auto'")
         self.cache_dir = Path(cache_dir) if cache_dir is not None else default_cache_dir()
-        self.cache = cache
+        self._cache_mode: bool | Literal["auto"] = cache
         self.offline = offline
         self.stats = TransferStats()
         self.range_workers = 4
         self._stats_lock = Lock()
+        self._executor_lock = Lock()
+        self._executor: ThreadPoolExecutor | None = None
         self._storage_options = dict(storage_options or {})
         self._children: dict[str, Source] = {}
         options = dict(storage_options or {})
@@ -162,7 +165,11 @@ class Source:
         self._bounded: set[str] = set()
         self._parquet: dict[str, pq.ParquetFile] = {}
         self._json: dict[str, tuple[Fingerprint | None, dict[str, object]]] = {}
-        if isinstance(root, Path) or is_win_path or not parsed.scheme or parsed.scheme == "file":
+        is_local = isinstance(root, Path) or is_win_path or not parsed.scheme or parsed.scheme == "file"
+        self.cache: bool = (not is_local) if cache == "auto" else cache
+        if offline and not self.cache:
+            raise ValueError("offline access requires cache=True")
+        if is_local:
             if options or (parsed.scheme == "file" and (parsed.netloc or parsed.query or parsed.fragment)):
                 raise ValueError("local sources require a local path and no storage options")
             local_target = _file_uri_to_local_path(parsed.path) if parsed.scheme == "file" else root
@@ -207,7 +214,21 @@ class Source:
             else:
                 raise ValueError("dataset root must be local, HTTP(S), or s3://")
         self.identity = hashlib.sha256(json.dumps(location, sort_keys=True).encode()).hexdigest()
-        self._cache = RangeCache(self.cache_dir, self.identity) if cache else None
+        if _shared_cache is not None:
+            self._cache: RangeCache | None = _shared_cache
+            self._owns_cache = False
+        elif self.cache:
+            self._cache = RangeCache(self.cache_dir, self.identity)
+            self._owns_cache = True
+        else:
+            self._cache = None
+            self._owns_cache = False
+
+    def _get_executor(self) -> ThreadPoolExecutor:
+        with self._executor_lock:
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(max_workers=self.range_workers)
+            return self._executor
 
     def external(self, url: str) -> tuple[Source, str]:
         """Share lifecycle/cache/counters; cross-origin external access is anonymous.
@@ -223,7 +244,7 @@ class Source:
                 root,
                 storage_options=options,
                 cache_dir=self.cache_dir,
-                cache=self.cache,
+                cache=self._cache_mode,
                 offline=self.offline,
             )
             child.stats = self.stats
@@ -234,33 +255,6 @@ class Source:
     def _cache_key(self, path: str) -> str:
         fingerprint = self._fingerprints.get(path)
         return json.dumps([path, asdict(fingerprint) if fingerprint else None], sort_keys=True)
-
-    def read_ranges(
-        self, path: str, fingerprint: Fingerprint, ranges: list[tuple[int, int]], *, max_workers: int = 4
-    ) -> list[bytes]:
-        """Acquire exact ranges concurrently without sharing mutable file cursors.
-
-        At most max_workers transfers run at once; returned bytes occupy the sum
-        of requested lengths. This is explicit batch acquisition, not unbounded prefetch.
-        """
-        self.open_artifact(path, fingerprint)
-        identity = self._files[path].identity
-        merged: list[tuple[int, int]] = []
-        for start, end in sorted(ranges):
-            if not 0 <= start < end <= identity.size:
-                raise ValueError("artifact range out of bounds")
-            if merged and start < merged[-1][1]:
-                merged[-1] = merged[-1][0], max(end, merged[-1][1])
-            else:
-                merged.append((start, end))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            acquired = list(executor.map(lambda bounds: self._range(path, identity, *bounds), merged))
-        return [
-            data[start - left : end - left]
-            for start, end in ranges
-            for (left, right), data in zip(merged, acquired, strict=True)
-            if left <= start and end <= right
-        ]
 
     def _path(self, relative: str) -> str:
         if self._closed:
@@ -371,19 +365,28 @@ class Source:
             saved = self._cache.metadata(key) if self._cache else None
             if saved is not None:
                 value = json.loads(saved)
-                if value["local_stat"] is not None:
-                    value["local_stat"] = tuple(value["local_stat"])
-                identity = _Identity(**value)
+                value.pop("local_stat", None)
+                local_stat = self._stat(path) if self._local_root is not None and not self.offline else None
+                identity = _Identity(
+                    size=value["size"],
+                    etag=value["etag"],
+                    version=value["version"],
+                    local_stat=local_stat,
+                )
             else:
                 if self.offline:
                     raise ValueError(f"offline cache missing identity for {path}")
                 identity = self._identity(path)
                 if self._cache:
-                    saved = self._cache.pin(key, json.dumps(asdict(identity)).encode())
+                    persisted = {"size": identity.size, "etag": identity.etag, "version": identity.version}
+                    saved = self._cache.pin(key, json.dumps(persisted).encode())
                     value = json.loads(saved)
-                    if value["local_stat"] is not None:
-                        value["local_stat"] = tuple(value["local_stat"])
-                    identity = _Identity(**value)
+                    identity = _Identity(
+                        size=value["size"],
+                        etag=value["etag"],
+                        version=value["version"],
+                        local_stat=identity.local_stat,
+                    )
             if identity.size != fingerprint.size_bytes:
                 raise ValueError(f"{path}: artifact size mismatch")
             self._files[path] = _ArtifactFile(self, path, identity)
@@ -488,9 +491,10 @@ class Source:
         """
         if not self.cache or self.offline:
             return
+        assert self._cache is not None
         reader = self.parquet(path, fingerprint)
         metadata = reader.metadata.row_group(group)
-        ranges: list[tuple[int, int]] = []
+        raw_ranges: list[tuple[int, int]] = []
         for index in range(metadata.num_columns):
             chunk = metadata.column(index)
             if columns is not None and not any(
@@ -501,16 +505,50 @@ class Source:
             if chunk.has_dictionary_page:
                 start = min(start, chunk.dictionary_page_offset)
             end = start + chunk.total_compressed_size
-            for offset in range(start, end, 8 * 1024 * 1024):
-                ranges.append((offset, min(offset + 8 * 1024 * 1024, end)))
+            if start < end:
+                raw_ranges.append((start, end))
+        if not raw_ranges:
+            return
+        merged: list[tuple[int, int]] = []
+        for start, end in sorted(raw_ranges):
+            if merged and start <= merged[-1][1]:
+                merged[-1] = merged[-1][0], max(end, merged[-1][1])
+            else:
+                merged.append((start, end))
+        key = self._cache_key(path)
+        chunks: list[tuple[int, int]] = []
+        for start, end in merged:
+            for m_start, m_end in self._cache.missing_ranges(key, start, end):
+                for offset in range(m_start, m_end, 8 * 1024 * 1024):
+                    chunks.append((offset, min(offset + 8 * 1024 * 1024, m_end)))
+        if not chunks:
+            return
         identity = self._files[path].identity
-
-        def acquire(bounds: tuple[int, int]) -> None:
-            self._range(path, identity, *bounds)
-
-        with ThreadPoolExecutor(max_workers=self.range_workers) as executor:
-            for offset in range(0, len(ranges), self.range_workers):
-                list(executor.map(acquire, ranges[offset : offset + self.range_workers]))
+        if len(chunks) == 1:
+            self._fetch_range(path, identity, *chunks[0])
+            return
+        executor = self._get_executor()
+        pending: set[Future[bytes]] = set()
+        chunk_iter = iter(chunks)
+        try:
+            for _ in range(min(self.range_workers, len(chunks))):
+                bounds = next(chunk_iter)
+                pending.add(executor.submit(self._fetch_range, path, identity, *bounds))
+            while pending:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    future.result()
+                while len(pending) < self.range_workers:
+                    nxt = next(chunk_iter, None)
+                    if nxt is None:
+                        break
+                    pending.add(executor.submit(self._fetch_range, path, identity, *nxt))
+        except BaseException:
+            for future in pending:
+                future.cancel()
+            if pending:
+                wait(pending)
+            raise
 
     @property
     def buffer_bytes(self) -> int:
@@ -540,7 +578,12 @@ class Source:
             self._json.clear()
             for child in self._children.values():
                 child.close()
-            if self._cache:
+            with self._executor_lock:
+                executor = self._executor
+                self._executor = None
+            if executor is not None:
+                executor.shutdown(wait=True)
+            if self._cache and self._owns_cache:
                 self._cache.close()
 
     def __enter__(self) -> Source:

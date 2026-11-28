@@ -53,18 +53,33 @@ def _assess_cuts(units: list[Subbasin], *, column: str, declared: DeclaredComple
     unverified: list[int] = []
     if len(tables) == 1 and units:
         table = units[0].table
-        ids = cast(list[int], table["id"].to_pylist())
-        values = cast(list[int | None], table[column].to_pylist())
-        pairs: Iterable[tuple[int, int | None]] = ((ids[unit.row], values[unit.row]) for unit in units)
+        rows = np.fromiter((unit.row for unit in units), dtype=np.int64, count=len(units))
+        ids_arr = table["id"].combine_chunks().to_numpy(zero_copy_only=False)[rows]
+        col_arr = table[column].combine_chunks()
+        is_null = (
+            col_arr.is_null().to_numpy(zero_copy_only=False)[rows]
+            if col_arr.null_count
+            else np.zeros(len(units), dtype=np.bool_)
+        )
+        raw_vals = col_arr.to_numpy(zero_copy_only=False)[rows]
+        valid_mask = ~is_null
+        if np.any(valid_mask & (raw_vals < 0)):
+            bad = int(np.flatnonzero(valid_mask & (raw_vals < 0))[0])
+            raise ValueError(f"catchment {int(ids_arr[bad])}: negative {column} value {int(raw_vals[bad])}")
+        for pos in np.flatnonzero(is_null).tolist():
+            unverified.append(int(ids_arr[pos]))
+        for pos in np.flatnonzero(valid_mask & (raw_vals > 0)).tolist():
+            cut_counts[int(ids_arr[pos])] = int(raw_vals[pos])
     else:
-        pairs = ((unit.id, cast(int | None, unit.table[column][unit.row].as_py())) for unit in units)
-    for uid, value in pairs:
-        if value is None:
-            unverified.append(uid)
-        elif value < 0:
-            raise ValueError(f"catchment {uid}: negative {column} value {value}")
-        elif value > 0:
-            cut_counts[uid] = value
+        for unit in units:
+            uid = unit.id
+            value = cast(int | None, unit.table[column][unit.row].as_py())
+            if value is None:
+                unverified.append(uid)
+            elif value < 0:
+                raise ValueError(f"catchment {uid}: negative {column} value {value}")
+            elif value > 0:
+                cut_counts[uid] = value
     if declared == "complete" and (cut_counts or unverified):
         raise ValueError(
             f"catchment_connectivity declares complete for {column!r} but visited units have cuts or nulls"
@@ -176,8 +191,19 @@ def _select(
     if isinstance(target, Point):
         seeds = seeds[:1]
     units = fabric.subbasins(fabric.traverse("catchments", seeds))
-    if any(unit.attributes["level"] != level for unit in units):
-        raise ValueError("catchment flow relationship crosses levels")
+    if units:
+        first_table = units[0].table
+        if all(unit.table is first_table for unit in units):
+            rows = np.fromiter((unit.row for unit in units), dtype=np.int64, count=len(units))
+            level_col = first_table["level"].combine_chunks()
+            if level_col.null_count:
+                nulls = level_col.is_null().to_numpy(zero_copy_only=False)[rows]
+                if np.any(nulls):
+                    raise ValueError("catchment flow relationship crosses levels")
+            if np.any(level_col.to_numpy(zero_copy_only=False)[rows] != level):
+                raise ValueError("catchment flow relationship crosses levels")
+        elif any(unit.attributes["level"] != level for unit in units):
+            raise ValueError("catchment flow relationship crosses levels")
     if declaration is not None and declaration.upstream_cuts_column is not None:
         coverage = _assess_cuts(
             units,
