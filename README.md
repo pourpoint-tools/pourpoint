@@ -29,6 +29,12 @@ to your project.
 uv add pourpoint
 ```
 
+To test the `0.6.0rc1` release candidate (matching the examples below):
+
+```bash
+uv add "pourpoint==0.6.0rc1"
+```
+
 ## Use with a coding agent
 
 Copy the prompt below into your coding agent after installing Pourpoint.
@@ -47,8 +53,11 @@ fails, report the error. Do not install or upgrade packages automatically.
 Pourpoint reads compiled HFX bundles, not arbitrary source hydrofabrics or
 DEMs. Use a local bundle directory or an accessible HTTP(S)/S3 bundle URL.
 Check supported HFX versions and representations in the getting-started
-guide. Remote reads need access to the host; cached data may be incomplete.
-Only access data needed for the user's task and respect source-data terms.
+guide. Remote reads default to persistent disk caching (cache="auto");
+local paths leave disk caching off unless cache=True is passed (offline=True
+on local paths requires cache=True). Remote reads need host access; cached
+data may be incomplete. Only access data needed for the user's task and
+respect source-data terms.
 
 Typical vector-only workflow, with the user's HFX bundle and outlet:
 import pourpoint as pp
@@ -64,8 +73,12 @@ native raster outputs retain their own CRS. Catchment level defaults to 1,
 not the finest level. This example selects whole upstream sub-basins.
 Snapping needs explicit snap_onto geometry; its radius is in metres.
 refine=True needs covering direction and accumulation rasters and never
-silently falls back to a coarse result. Consult the README's Rhine example
-for snapping, refinement and QGIS export; do not run it just for onboarding.
+silently falls back to a coarse result. GranularRefinement and
+FootprintRefinement both expose .geometry; refine, merge, and select_rivers
+accept SelectionResult, unrefined DelineationResult, or refinement results
+directly, and QGISBundle.add_result exports both subbasins and watershed.
+Consult the README's Rhine example for snapping, refinement and QGIS export;
+do not run it just for onboarding.
 
 Single-target OperationError exposes code and reason. Selection returns
 SelectionResult (with .subbasins and .coverage) and delineate returns

@@ -42,10 +42,11 @@ Publishing a Pourpoint GitHub release runs `.github/workflows/publish-pypi.yml`:
 1. Build the release tag's distributions with `uv build`.
 2. Publish them to PyPI using trusted publishing in the `pypi` environment.
 3. Only after PyPI succeeds, build the release tag's documentation with the exact
-   HFX revision in `docs/hfx-revision`, retain an Actions artifact, and update the
-   generated repository's `main` branch.
-4. Update `gh-pages` only when the Pourpoint repository variable
-   `DOCS_PUBLICATION_ENABLED` is exactly `true`.
+   HFX revision in `docs/hfx-revision` and retain an Actions artifact.
+4. For non-prerelease releases only, update the generated repository's `main`
+   branch, and update `gh-pages` when the Pourpoint repository variable
+   `DOCS_PUBLICATION_ENABLED` is exactly `true`. GitHub prereleases never modify
+   `main` or `gh-pages` in `pourpoint-tools/pourpoint-tools.github.io`.
 
 Before the first release, configure a PyPI trusted publisher for project
 `pourpoint`, GitHub owner `pourpoint-tools`, repository `pourpoint`, workflow
