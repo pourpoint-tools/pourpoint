@@ -35,10 +35,14 @@ Vector targets use WGS84 longitude/latitude, in that order. Native raster output
 retain their own CRS and affine transform. Snapping radius is in metres; the
 refinement window is measured in native cells.
 
-The optional `cache_dir` selects a persistent byte-range cache. With the default
-cache enabled, the first manifest snapshot is retained. Use a new cache directory
-to adopt another publication deliberately. `offline=True` replays acquired ranges;
-a partial cache cannot answer requests for data it never acquired.
+Caching defaults to `cache="auto"`, which enables the persistent byte-range cache
+for remote (`http`, `https`, `s3`) locations and leaves local paths uncached
+unless `cache=True` is passed (`offline=True` on a local path requires
+`cache=True`). The optional `cache_dir` selects a persistent directory. With
+caching active, the first manifest snapshot is retained; use a new cache
+directory to adopt another publication deliberately. `offline=True` replays
+acquired ranges; a partial cache cannot answer requests for data it never
+acquired.
 
 See [runtime access](runtime.md) for cache, transport and identity guarantees and
 [operations](operations.md) for selection and failure semantics. The generated

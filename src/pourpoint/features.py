@@ -10,6 +10,12 @@ import pyarrow as pa
 import shapely
 from shapely.geometry.base import BaseGeometry
 
+from pourpoint._selection import compact_dictionaries
+
+
+def _single_row_table(table: pa.Table, row: int) -> pa.Table:
+    return compact_dictionaries(table.slice(row, 1))
+
 
 class Attributes(Mapping[str, object]):
     """Read-only mapping of source fields other than geometry.
@@ -27,6 +33,9 @@ class Attributes(Mapping[str, object]):
     def __getitem__(self, name: str) -> object:
         return self.scalar(name).as_py()
 
+    def __contains__(self, name: object) -> bool:
+        return isinstance(name, str) and name != "geometry" and self._table.schema.get_field_index(name) != -1
+
     def scalar(self, name: str) -> pa.Scalar:
         """Return a typed source value, including nulls; geometry raises ``KeyError``."""
         if name == "geometry":
@@ -39,6 +48,18 @@ class Attributes(Mapping[str, object]):
     def __len__(self) -> int:
         return len(self._table.column_names) - int("geometry" in self._table.column_names)
 
+    def __repr__(self) -> str:
+        names = list(self)
+        preview: list[str] = []
+        for name in names[:5]:
+            text = repr(self[name])
+            if len(text) > 80:
+                text = text[:77] + "..."
+            preview.append(f"{name}={text}")
+        if len(names) > 5:
+            preview.append(f"+{len(names) - 5} fields")
+        return f"Attributes({', '.join(preview)})"
+
     @property
     def schema(self) -> pa.Schema:
         """Attribute fields with source field/schema metadata, excluding geometry."""
@@ -47,7 +68,7 @@ class Attributes(Mapping[str, object]):
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, repr=False)
 class Feature:
     """A materialized feature backed by a source Arrow row.
 
@@ -60,13 +81,41 @@ class Feature:
 
     Notes
     -----
-    Features remain usable after fabric closure. Reading a feature does not
-    rewrite WKB or validate its geometry; decoding occurs on ``geometry`` access.
+    Features remain usable after fabric closure. Equality compares the exact
+    backing single-row Arrow values and schema metadata of identical feature
+    types rather than comparing whole backing tables. Reading a feature does not
+    rewrite WKB or validate its geometry; decoding occurs uncached on
+    ``geometry`` access.
     """
 
     table: pa.Table
     row: int
     geometry_types: ClassVar[tuple[str, ...]] = ()
+
+    def _raw_wkb(self) -> bytes | None:
+        if self.table.schema.get_field_index("geometry") == -1:
+            return None
+        value = self.table["geometry"][self.row].as_py()
+        return value if isinstance(value, bytes) else None
+
+    def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
+        if type(self) is not type(other):
+            return NotImplemented
+        if self.table is other.table and self.row == other.row:
+            return True
+        if self.id != other.id or self._raw_wkb() != other._raw_wkb():
+            return False
+        return _single_row_table(self.table, self.row).equals(
+            _single_row_table(other.table, other.row), check_metadata=True
+        )
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.id, self._raw_wkb()))
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(id={self.id})"
 
     @property
     def id(self) -> int:
@@ -76,8 +125,8 @@ class Feature:
     @property
     def wkb(self) -> bytes:
         """Original source geometry bytes; missing geometry raises ``ValueError``."""
-        value = self.table["geometry"][self.row].as_py()
-        if not isinstance(value, bytes):
+        value = self._raw_wkb()
+        if value is None:
             raise ValueError(f"feature {self.id}: missing geometry")
         return value
 
@@ -99,7 +148,7 @@ class Feature:
         return Attributes(self.table, self.row)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, repr=False)
 class Subbasin(Feature):
     """A whole source catchment polygon or multipolygon, not a refined contribution."""
 

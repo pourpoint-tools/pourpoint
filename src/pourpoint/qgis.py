@@ -11,6 +11,7 @@ import zipfile
 from collections.abc import Buffer, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Self
 from uuid import uuid4
@@ -22,10 +23,11 @@ import rasterio
 from rasterio.crs import CRS  # ty: ignore[unresolved-import]
 from shapely.geometry.base import BaseGeometry
 
-from pourpoint._selection import compact_dictionaries
+from pourpoint._selection import compact_dictionaries, take_rows
 from pourpoint.features import Feature, RiverNetwork
 from pourpoint.refinement import FootprintRefinement, GranularRefinement, RasterSubset, SubbasinContribution
 from pourpoint.results import BatchIssue, BatchResult, DelineationResult, SelectionResult, UpstreamCoverage
+from pourpoint.rivers import ClippedRiver
 
 type ExportResult = SelectionResult | DelineationResult | GranularRefinement | FootprintRefinement
 type ExportBatch = (
@@ -40,7 +42,7 @@ type VectorFeature = Feature | SubbasinContribution
 @dataclass
 class _Vector:
     name: str
-    geometries: list[BaseGeometry]
+    wkbs: list[bytes]
     sources: list[VectorFeature]
     crs: CRS
     group: str | None = None
@@ -122,9 +124,119 @@ class _ArrowSink(io.RawIOBase):
             self.part += 1
 
 
-def _arrow(db: sqlite3.Connection, layer: str, kind: str, table: pa.Table) -> None:
+def _arrow(db: sqlite3.Connection, layer: str, kind: str, table: pa.Table) -> int:
     with _ArrowSink(db, layer, kind) as sink, pa.ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table)
+    return sink.stream_id
+
+
+def _iso2d_geom_span(buf: bytes, offset: int) -> tuple[int, str] | None:
+    if offset + 5 > len(buf):
+        return None
+    order = buf[offset]
+    if order == 1:
+        endian = "<"
+    elif order == 0:
+        endian = ">"
+    else:
+        return None
+    wkb_type = struct.unpack_from(endian + "I", buf, offset + 1)[0]
+    pos = offset + 5
+    if wkb_type == 1:
+        if pos + 16 > len(buf):
+            return None
+        x, y = struct.unpack_from(endian + "dd", buf, pos)
+        if not (isfinite(x) and isfinite(y)):
+            return None
+        return pos + 16, "Point"
+    if wkb_type == 2:
+        if pos + 4 > len(buf):
+            return None
+        count = struct.unpack_from(endian + "I", buf, pos)[0]
+        if count < 2:
+            return None
+        end = pos + 4 + 16 * count
+        if end > len(buf):
+            return None
+        return end, "LineString"
+    if wkb_type == 3:
+        if pos + 4 > len(buf):
+            return None
+        n_rings = struct.unpack_from(endian + "I", buf, pos)[0]
+        if n_rings < 1:
+            return None
+        pos += 4
+        for _ in range(n_rings):
+            if pos + 4 > len(buf):
+                return None
+            n_pts = struct.unpack_from(endian + "I", buf, pos)[0]
+            if n_pts < 4:
+                return None
+            ring_end = pos + 4 + 16 * n_pts
+            if ring_end > len(buf):
+                return None
+            p0 = struct.unpack_from(endian + "dd", buf, pos + 4)
+            p1 = struct.unpack_from(endian + "dd", buf, ring_end - 16)
+            if p0 != p1:
+                return None
+            pos = ring_end
+        return pos, "Polygon"
+    if wkb_type in (4, 5, 6):
+        child_name = ("Point", "LineString", "Polygon")[wkb_type - 4]
+        multi_name = ("MultiPoint", "MultiLineString", "MultiPolygon")[wkb_type - 4]
+        if pos + 4 > len(buf):
+            return None
+        n_parts = struct.unpack_from(endian + "I", buf, pos)[0]
+        if n_parts < 1:
+            return None
+        pos += 4
+        for _ in range(n_parts):
+            child = _iso2d_geom_span(buf, pos)
+            if child is None or child[1] != child_name:
+                return None
+            pos = child[0]
+        return pos, multi_name
+    return None
+
+
+def _validated_feature_wkb(feature: Feature) -> bytes:
+    wkb = feature.wkb
+    span = _iso2d_geom_span(wkb, 0)
+    if span is not None and span[0] == len(wkb) and span[1] in feature.geometry_types:
+        return wkb
+    return feature.geometry.wkb
+
+
+def _gather_feature_tables(originals: Sequence[Feature]) -> list[tuple[pa.Table, list[int]]]:
+    groups: list[tuple[pa.Schema, list[tuple[int, Feature]]]] = []
+    for idx, feat in enumerate(originals):
+        pos = idx + 1
+        schema = feat.table.schema
+        for group_schema, items in groups:
+            if group_schema.equals(schema, check_metadata=True):
+                items.append((pos, feat))
+                break
+        else:
+            groups.append((schema, [(pos, feat)]))
+    gathered: list[tuple[pa.Table, list[int]]] = []
+    for _, items in groups:
+        run_pieces: list[pa.Table] = []
+        i = 0
+        while i < len(items):
+            tbl = items[i][1].table
+            run_rows = [items[i][1].row]
+            j = i + 1
+            while j < len(items) and items[j][1].table is tbl:
+                run_rows.append(items[j][1].row)
+                j += 1
+            if run_rows == list(range(tbl.num_rows)):
+                run_pieces.append(tbl)
+            else:
+                run_pieces.append(take_rows(tbl, run_rows))
+            i = j
+        table = run_pieces[0] if len(run_pieces) == 1 else pa.concat_tables(run_pieces)
+        gathered.append((compact_dictionaries(table), [pos for pos, _ in items]))
+    return gathered
 
 
 def _quote(name: str) -> str:
@@ -202,13 +314,16 @@ class QGISBundle:
     Scalar source fields become ordinary vector columns. Reserved-name collisions
     gain ``source_`` prefixes; ``source_metadata.attribute_columns`` records names.
     Rich values, original WKB and Arrow schemas/metadata are losslessly retained
-    as IPC streams in ``source_arrow``. Each ``stream_id`` identifies one source
-    table, including distinct node records. Concatenate its ``payload`` values
-    in ascending ``part`` order before opening the IPC stream. Small streams
-    occupy one row. Parts are byte segments, not independent IPC streams.
-    Individual geometry and ordinary attribute values must still fit SQLite's
-    value/row limits; segmentation removes the aggregate source-IPC limit only.
-    Result locations are WGS84 WKB in
+    as collective IPC streams in ``source_arrow`` (``kind="features"`` for
+    vector layers and ``kind="nodes"`` for supplied river nodes). Each
+    ``stream_id`` identifies one table aligned with layer row order when one
+    schema backs the layer, or recorded per-``fid`` in ``source_metadata``
+    (``feature_streams`` / ``node_streams``) when mixed backing schemas occur.
+    Concatenate its ``payload`` values in ascending ``part`` order before opening
+    the IPC stream. Small streams occupy one row. Parts are byte segments, not
+    independent IPC streams. Individual geometry and ordinary attribute values
+    must still fit SQLite's value/row limits; segmentation removes the aggregate
+    source-IPC limit only. Result locations are WGS84 WKB in
     ``result_metadata``, alongside provenance and JSON-encoded
     ``UpstreamCoverage`` diagnostics; these are not extra map layers.
     """
@@ -252,7 +367,7 @@ class QGISBundle:
         if isinstance(data, BaseGeometry):
             if crs is None:
                 raise ValueError("raw vector geometry requires an explicit CRS")
-            geometries, sources = [data], []
+            wkbs, sources = [data.wkb], []
         else:
             if isinstance(data, RiverNetwork):
                 self._networks.append((len(self._vectors), data))
@@ -261,8 +376,13 @@ class QGISBundle:
                 sources = [data]
             else:
                 sources = list(data)
-            geometries = [feature.geometry for feature in sources]
-        self._vectors.append(_Vector(name, geometries, sources, CRS.from_user_input(crs or "EPSG:4326")))
+            wkbs = [
+                feature.geometry.wkb
+                if isinstance(feature, (SubbasinContribution, ClippedRiver))
+                else _validated_feature_wkb(feature)
+                for feature in sources
+            ]
+        self._vectors.append(_Vector(name, wkbs, sources, CRS.from_user_input(crs or "EPSG:4326")))
         return self
 
     def add_raster(self, name: str, data: RasterSubset) -> Self:
@@ -290,10 +410,12 @@ class QGISBundle:
             `GranularRefinement` or `FootprintRefinement`) or its batch
             container. Each batch target gets its named group and retained
             identity; failures go into ``target_issues`` without fabricated
-            features. Available outputs include sub-basins, merged footprint,
+            features. Available outputs include sub-basins, merged footprint
+            (including retained ``watershed`` geometry for `GranularRefinement`),
             outlined native-CRS outlet cell and one raster pair per refined
             target. Overlapping targets may duplicate pixels. Granular
-            refinement is not silently merged into another layer.
+            refinement is exported with both ``subbasins`` and its retained
+            ``watershed`` boundary with no implicit merging during export.
 
         Notes
         -----
@@ -319,7 +441,7 @@ class QGISBundle:
         else:
             if result.subbasins:
                 self.add_vector("subbasins", result.subbasins)
-            if isinstance(result, DelineationResult) and result.geometry is not None:
+            if isinstance(result, (DelineationResult, GranularRefinement)) and result.geometry is not None:
                 self.add_vector("watershed", result.geometry, crs="EPSG:4326")
         if not isinstance(result, SelectionResult) and result.outlet_cell is not None:
             self.add_vector("outlet_cell", result.outlet_cell.geometry, crs=result.outlet_cell.grid.crs)
@@ -407,9 +529,36 @@ class QGISBundle:
                         None,
                     ),
                 )
-                db.execute(
-                    f'CREATE TABLE "{table}" (fid INTEGER PRIMARY KEY, geometry BLOB, source_id INTEGER, target_name TEXT, target_index INTEGER)'
-                )
+                columns: dict[str, str] = {}
+                col_defs: list[str] = []
+                used = {"fid", "geometry", "source_id", "target_name", "target_index"}
+                originals = [
+                    source.source if isinstance(source, SubbasinContribution) else source for source in vector.sources
+                ]
+                seen_tables: set[int] = set()
+                for orig in originals:
+                    if id(orig.table) in seen_tables:
+                        continue
+                    seen_tables.add(id(orig.table))
+                    for arrow_field in orig.attributes.schema:
+                        sql_type = _scalar_type(arrow_field.type)
+                        if arrow_field.name in columns or sql_type is None:
+                            continue
+                        column = arrow_field.name
+                        while column.lower() in used:
+                            column = "source_" + column
+                        used.add(column.lower())
+                        columns[arrow_field.name] = column
+                        col_defs.append(f"{_quote(column)} {sql_type}")
+                base_defs = [
+                    "fid INTEGER PRIMARY KEY",
+                    "geometry BLOB",
+                    "source_id INTEGER",
+                    "target_name TEXT",
+                    "target_index INTEGER",
+                    *col_defs,
+                ]
+                db.execute(f'CREATE TABLE "{table}" ({", ".join(base_defs)})')
                 db.execute(
                     "INSERT INTO gpkg_contents (table_name,data_type,identifier,srs_id) VALUES (?, 'features', ?, ?)",
                     (table, table, srid),
@@ -417,43 +566,65 @@ class QGISBundle:
                 db.execute(
                     "INSERT INTO gpkg_geometry_columns VALUES (?, 'geometry', 'GEOMETRY', ?, 0, 0)", (table, srid)
                 )
-                columns: dict[str, str] = {}
-                used = {"fid", "geometry", "source_id", "target_name", "target_index"}
-                for source in vector.sources:
-                    for field in source.attributes.schema:
-                        sql_type = _scalar_type(field.type)
-                        if field.name in columns or sql_type is None:
-                            continue
-                        column = field.name
-                        while column.lower() in used:
-                            column = "source_" + column
-                        used.add(column.lower())
-                        columns[field.name] = column
-                        db.execute(f'ALTER TABLE "{table}" ADD COLUMN {_quote(column)} {sql_type}')
-                for row, geometry in enumerate(vector.geometries):
-                    source = vector.sources[row] if vector.sources else None
-                    blob = b"GP" + bytes((0, 1)) + struct.pack("<i", srid) + geometry.wkb
-                    db.execute(
-                        f'INSERT INTO "{table}" (fid,geometry,source_id,target_name,target_index) VALUES (?, ?, ?, ?, ?)',
-                        (row + 1, blob, source.id if source else None, vector.group, vector.target_index),
-                    )
-                    if source:
-                        for field, column in columns.items():
-                            if field in source.attributes:
-                                db.execute(
-                                    f'UPDATE "{table}" SET {_quote(column)} = ? WHERE fid = ?',
-                                    (source.attributes[field], row + 1),
-                                )
-                        original = source.source if isinstance(source, SubbasinContribution) else source
-                        _arrow(
-                            db,
-                            table,
-                            f"feature:{row + 1}",
-                            compact_dictionaries(original.table.slice(original.row, 1).take([0])),
+                header = b"GP" + bytes((0, 1)) + struct.pack("<i", srid)
+                scalar_fields = list(columns)
+                scalar_sql_cols = [columns[name] for name in scalar_fields]
+                if originals:
+                    feature_groups = _gather_feature_tables(originals)
+                    source_ids = [0] * len(originals)
+                    scalar_rows: list[list[object]] = [[] for _ in range(len(originals))]
+                    for gathered_table, fids in feature_groups:
+                        select_cols = list(
+                            dict.fromkeys(
+                                ["id", *(f for f in scalar_fields if gathered_table.schema.get_field_index(f) != -1)]
+                            )
                         )
-                if columns:
-                    db.execute(
-                        "INSERT INTO source_metadata VALUES (?, ?)", (table, json.dumps({"attribute_columns": columns}))
+                        py_rows = gathered_table.select(select_cols).to_pylist()
+                        for fid, row_dict in zip(fids, py_rows, strict=True):
+                            pos = fid - 1
+                            source_ids[pos] = row_dict["id"]
+                            scalar_rows[pos] = [row_dict.get(name) for name in scalar_fields]
+                    insert_cols = [
+                        "fid",
+                        "geometry",
+                        "source_id",
+                        "target_name",
+                        "target_index",
+                        *(_quote(col) for col in scalar_sql_cols),
+                    ]
+                    placeholders = ", ".join("?" * len(insert_cols))
+                    db.executemany(
+                        f'INSERT INTO "{table}" ({", ".join(insert_cols)}) VALUES ({placeholders})',
+                        [
+                            (
+                                row + 1,
+                                header + wkb,
+                                source_ids[row],
+                                vector.group,
+                                vector.target_index,
+                                *scalar_rows[row],
+                            )
+                            for row, wkb in enumerate(vector.wkbs)
+                        ],
+                    )
+                    stream_refs = [
+                        {"stream_id": _arrow(db, table, "features", gathered_table), "fids": fids}
+                        for gathered_table, fids in feature_groups
+                    ]
+                    metadata_payload: dict[str, object] = {}
+                    if columns:
+                        metadata_payload["attribute_columns"] = columns
+                    if len(stream_refs) > 1:
+                        metadata_payload["feature_streams"] = stream_refs
+                    if metadata_payload:
+                        db.execute("INSERT INTO source_metadata VALUES (?, ?)", (table, json.dumps(metadata_payload)))
+                else:
+                    db.executemany(
+                        f'INSERT INTO "{table}" (fid,geometry,source_id,target_name,target_index) VALUES (?, ?, ?, ?, ?)',
+                        [
+                            (row + 1, header + wkb, None, vector.group, vector.target_index)
+                            for row, wkb in enumerate(vector.wkbs)
+                        ],
                     )
                 self._layer(
                     layers,
@@ -467,17 +638,31 @@ class QGISBundle:
             for index, network in self._networks:
                 table = f"layer_{index}"
                 _arrow(db, table, "relationships", network.relationships)
-                for row in network.relationships.to_pylist():
-                    for relation, targets in row.items():
-                        if relation != "id" and isinstance(targets, list):
-                            db.executemany(
-                                "INSERT INTO river_connections VALUES (?, ?, ?, ?)",
-                                [(table, row["id"], relation, target) for target in targets],
-                            )
+                connections = [
+                    (table, row["id"], relation, target)
+                    for row in network.relationships.to_pylist()
+                    for relation, targets in row.items()
+                    if relation != "id" and isinstance(targets, list)
+                    for target in targets
+                ]
+                if connections:
+                    db.executemany("INSERT INTO river_connections VALUES (?, ?, ?, ?)", connections)
                 if network.node_relationships is not None:
                     _arrow(db, table, "node_relationships", network.node_relationships)
-                for node in network.nodes:
-                    _arrow(db, table, "node", compact_dictionaries(node.table.slice(node.row, 1).take([0])))
+                if network.nodes:
+                    node_groups = _gather_feature_tables(network.nodes)
+                    node_refs = [
+                        {
+                            "stream_id": _arrow(db, table, "nodes", node_table),
+                            "indices": [pos - 1 for pos in positions],
+                        }
+                        for node_table, positions in node_groups
+                    ]
+                    if len(node_refs) > 1:
+                        db.execute(
+                            "INSERT INTO source_metadata VALUES (?, ?)",
+                            (table, json.dumps({"node_streams": node_refs})),
+                        )
                 db.execute(
                     "INSERT INTO source_metadata VALUES (?, ?)", (table, json.dumps(_thaw(network.declarations)))
                 )

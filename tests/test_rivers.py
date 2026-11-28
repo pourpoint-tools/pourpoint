@@ -335,6 +335,8 @@ def test_select_rivers_eliminates_redundant_river_reads_and_uses_bounded_union(
         assert river_fetches == [[20, 30, 40]]
 
         # Sequence target must route through _union.union_subbasins instead of raw shapely.union_all.
+        import pourpoint.rivers as rivers_mod
+
         union_calls = 0
         orig_union_subbasins = _union.union_subbasins
 
@@ -344,7 +346,104 @@ def test_select_rivers_eliminates_redundant_river_reads_and_uses_bounded_union(
             return orig_union_subbasins(parts)  # type: ignore[arg-type]
 
         monkeypatch.setattr(_union, "union_subbasins", spy_union)
+        monkeypatch.setattr(rivers_mod, "union_subbasins", spy_union)
         tbl = pa.table({"id": [1, 2], "geometry": [box(0.5, -0.5, 1, 0.5).wkb, box(1, -0.5, 1.5, 0.5).wkb]})
         seq_res = select_rivers(fabric=fabric, target=[Subbasin(tbl, 0), Subbasin(tbl, 1)])
         assert union_calls == 1
         assert seq_res.geometry.equals(LineString([(0.5, 0), (1.5, 0)]))
+
+
+def test_clipped_river_ergonomics_and_select_rivers_result_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+    from shapely.geometry import Polygon
+
+    from pourpoint import _union, delineate, refine, select_rivers, select_upstream_subbasins
+    from pourpoint.features import River, Subbasin
+    from pourpoint.refinement import FootprintRefinement
+    from pourpoint.results import DelineationResult, SelectionResult, UpstreamCoverage
+    from pourpoint.rivers import ClippedRiver
+
+    # ClippedRiver equality/hashing/repr
+    tbl1 = pa.table({"id": [10, 20], "geometry": [LineString([(0, 0), (2, 0)]).wkb, LineString([(2, 0), (4, 0)]).wkb]})
+    tbl2 = pa.table(
+        {"id": [10, 99], "geometry": [LineString([(0, 0), (2, 0)]).wkb, LineString([(9, 9), (10, 10)]).wkb]}
+    )
+    p1 = LineString([(0, 0), (1, 0)])
+    p2 = LineString([(0, 0), (1.5, 0)])
+    cr1 = ClippedRiver(tbl1, 0, p1)
+    cr2 = ClippedRiver(tbl2, 0, p1)
+    cr3 = ClippedRiver(tbl1, 0, p2)
+    whole = River(tbl1, 0)
+    assert cr1 == cr2
+    assert hash(cr1) == hash(cr2)
+    assert cr1 != cr3
+    assert cr1 != whole
+    assert repr(cr1) == "ClippedRiver(id=10, geometry=LineString)"
+
+    # select_rivers accepts SelectionResult, DelineationResult, GranularRefinement, FootprintRefinement
+    path = river_publication(tmp_path / "composable", orientation=1)
+    # Also ensure catchments at id 10 cover (0.5..1.5, -0.5..0.5) cleanly in river_publication or reuse spatial_fixture
+    with HydroFabric(path, cache=False) as fabric:
+        basin_tbl = pa.table({"id": [1], "geometry": [box(0.5, -0.5, 1.5, 0.5).wkb]})
+        cov = UpstreamCoverage("complete", declared_completeness="complete", cut_counts={}, unverified_unit_ids=())
+        sel_res = SelectionResult([Subbasin(basin_tbl, 0)], cov, level=1, target=Point(1.0, 0.0))
+        empty_sel = SelectionResult([], cov, level=1, target=Polygon())
+
+        assert [r.id for r in select_rivers(fabric=fabric, target=sel_res).rivers] == [10]
+        assert select_rivers(fabric=fabric, target=empty_sel).rivers == []
+
+        merged_geom = box(0.5, -0.5, 2.5, 0.5)
+        delin_merged = DelineationResult(
+            [Subbasin(basin_tbl, 0)], merged_geom, None, None, Point(1.0, 0.0), Point(1.0, 0.0), {}, cov
+        )
+        delin_unmerged = DelineationResult(
+            [Subbasin(basin_tbl, 0)], None, None, None, Point(1.0, 0.0), Point(1.0, 0.0), {}, cov
+        )
+
+        import pourpoint.rivers as rivers_mod
+
+        union_calls = 0
+        orig_union = _union.union_subbasins
+
+        def spy_union(parts: object) -> object:
+            nonlocal union_calls
+            union_calls += 1
+            return orig_union(parts)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(_union, "union_subbasins", spy_union)
+        monkeypatch.setattr(rivers_mod, "union_subbasins", spy_union)
+        # Merged DelineationResult reuses .geometry directly without re-unioning
+        res_merged = select_rivers(fabric=fabric, target=delin_merged)
+        assert union_calls == 0
+        assert [r.id for r in res_merged.rivers] == [30, 10, 20]
+
+        res_unmerged = select_rivers(fabric=fabric, target=delin_unmerged)
+        assert union_calls == 1
+        assert [r.id for r in res_unmerged.rivers] == [10]
+
+    # GranularRefinement and FootprintRefinement from make_spatial_bundle
+    bundle_dir = make_spatial_bundle(tmp_path / "spatial_riv")
+    import numpy as np
+    from conftest import add_pair
+    from rasterio.transform import from_origin
+
+    add_pair(
+        bundle_dir,
+        encoding="grass",
+        direction=np.array([[0]], dtype="uint8"),
+        accumulation=np.array([[5]], dtype="int32"),
+        transform=from_origin(1.0, 1.25, 0.25, 0.25),
+    )
+    with HydroFabric(bundle_dir, cache=False) as fabric:
+        sel = select_upstream_subbasins(fabric=fabric, target=Point(1.1, 1.1))
+        gran = refine(fabric=fabric, subbasins=sel)
+        fp_ref = FootprintRefinement(gran.geometry, gran.outlet_cell, gran.rasters, gran.provenance, gran.coverage)
+        assert select_rivers(fabric=fabric, target=gran).geometry.equals(
+            select_rivers(fabric=fabric, target=gran.geometry).geometry
+        )
+        assert select_rivers(fabric=fabric, target=fp_ref).geometry.equals(
+            select_rivers(fabric=fabric, target=gran.geometry).geometry
+        )
+        del sel, delineate  # silence unused if needed

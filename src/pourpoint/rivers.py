@@ -19,11 +19,12 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import substring
 
 from pourpoint._selection import compact_dictionaries, take_rows
+from pourpoint._union import union_subbasins
 from pourpoint.fabric import HydroFabric
-from pourpoint.features import River, RiverNetwork, SourceNode, Subbasin
+from pourpoint.features import River, RiverNetwork, SourceNode, Subbasin, _single_row_table
 from pourpoint.metadata import bounds
-from pourpoint.refinement import SubbasinContribution
-from pourpoint.results import OperationError
+from pourpoint.refinement import FootprintRefinement, GranularRefinement, SubbasinContribution
+from pourpoint.results import DelineationResult, OperationError, SelectionResult
 from pourpoint.spatial import in_float32_range
 
 _GOLDEN_RATIO = (sqrt(5) - 1) / 2
@@ -55,7 +56,7 @@ class _SnapIndex:
     ymax: npt.NDArray[np.float64]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, repr=False)
 class ClippedRiver(River):
     """A derived river portion retaining the original source record.
 
@@ -68,6 +69,27 @@ class ClippedRiver(River):
     """
 
     portion: BaseGeometry
+
+    def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
+        if type(self) is not type(other):
+            return NotImplemented
+        if self.portion != other.portion:
+            return False
+        if self.table is other.table and self.row == other.row:
+            return True
+        if self.id != other.id or self._raw_wkb() != other._raw_wkb():
+            return False
+        return _single_row_table(self.table, self.row).equals(
+            _single_row_table(other.table, other.row), check_metadata=True
+        )
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.id, self._raw_wkb(), self.portion))
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(id={self.id}, geometry={self.portion.geom_type})"
 
     @property
     def geometry(self) -> BaseGeometry:
@@ -133,10 +155,22 @@ def _oriented_line(
     return line if votes.pop() else shapely.reverse(line)
 
 
+type RiverTarget = (
+    BaseGeometry
+    | Subbasin
+    | SubbasinContribution
+    | Sequence[Subbasin | SubbasinContribution]
+    | SelectionResult
+    | DelineationResult
+    | GranularRefinement
+    | FootprintRefinement
+)
+
+
 def select_rivers(
     *,
     fabric: HydroFabric,
-    target: BaseGeometry | Subbasin | SubbasinContribution | Sequence[Subbasin | SubbasinContribution],
+    target: RiverTarget,
     level: int = 1,
     include_downstream: bool = False,
 ) -> RiverNetwork:
@@ -147,9 +181,11 @@ def select_rivers(
     fabric
         Open fabric supplying rivers and their relationships.
     target
-        EPSG:4326 polygonal geometry, sub-basin/contribution, or collection of
-        parts forming one footprint. Internal part boundaries do not limit flow;
-        this collection is not a batch of independent targets.
+        EPSG:4326 polygonal geometry, sub-basin/contribution, collection of
+        parts forming one footprint, or a `SelectionResult`, `DelineationResult`,
+        `GranularRefinement`, or `FootprintRefinement`. Reuses already
+        materialized ``.geometry`` when present. Internal part boundaries do not
+        limit flow; this collection is not a batch of independent targets.
     level
         Nonnegative river level, independent of catchment levels. No fallback
         or inferred correspondence between catchment and river tiers is used.
@@ -199,11 +235,18 @@ def select_rivers(
         raise TypeError("include_downstream must be boolean")
     if isinstance(target, BaseGeometry):
         footprint = target
+    elif isinstance(target, (FootprintRefinement, GranularRefinement)):
+        footprint = target.geometry
+    elif isinstance(target, DelineationResult):
+        if target.geometry is not None:
+            footprint = target.geometry
+        else:
+            footprint = union_subbasins(target.subbasins) if target.subbasins else Polygon()
+    elif isinstance(target, SelectionResult):
+        footprint = union_subbasins(target.subbasins) if target.subbasins else Polygon()
     elif isinstance(target, (Subbasin, SubbasinContribution)):
         footprint = target.geometry
     else:
-        from pourpoint._union import union_subbasins
-
         parts = list(target)
         footprint = union_subbasins(parts) if parts else Polygon()
     if not footprint.is_valid:

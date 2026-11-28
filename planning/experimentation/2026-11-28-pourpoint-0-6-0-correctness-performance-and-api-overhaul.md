@@ -131,3 +131,19 @@ Keep pure Python and NumPy (`Option A`, retaining `py3-none-any` wheels with no 
 | `snap()` (1 target, `9,500` segments) | 492.33 ms | **7.69 ms** | **64.0×** | Exact snapped coords `[0.2495, 1.042]` |
 | `delineate(snap_onto=...)` (`30` targets) | 15,398.81 ms | **66.54 ms** | **231.4×** | `30 / 30` targets succeeded |
 | `select_rivers(include_downstream=True)` | 6.68 ms | **3.65 ms** | **1.83×** | `120 / 120` rivers selected |
+
+## Track 5 — QGIS Export & Collective `source_arrow` Benchmark
+
+### Workload and Setup
+
+- Exported a `QGISBundle` containing `5,000` `Subbasin` features (scalar `id`, `area_km2`, `order`, `name` plus list column `tags`) and a `RiverNetwork` (`500` `ClippedRiver` features, `500` `SourceNode` points, `499` `downstream_ids` edges) across 3 runs (median wall time reported).
+- Compared pre-Track-5 `main` (`68f02e4`) vs `track5`.
+
+### Observed Results
+
+| Metric | `main_68f02e4` | `track5` | Change |
+| --- | ---: | ---: | --- |
+| `QGISBundle.write()` wall time | 346.66 ms | **22.18 ms** | **15.6× faster** |
+| `vectors.gpkg` file size | 8.113 MiB (`8,507,392 B`) | **1.598 MiB** (`1,675,264 B`) | **-80.3%** (`5.08×` smaller) |
+| `source_arrow` SQLite rows | 6,001 | **4** | **1,500× fewer rows** (`features`, `relationships`, `nodes`) |
+| `layer_0` / `river_connections` rows | 5,000 / 499 | 5,000 / 499 | Identical row counts |
