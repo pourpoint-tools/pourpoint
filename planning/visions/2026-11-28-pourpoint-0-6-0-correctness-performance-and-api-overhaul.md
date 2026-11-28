@@ -1,0 +1,99 @@
+# Pourpoint 0.6.0 correctness, performance, and API overhaul
+
+## Outcome and scope
+
+Deliver a comprehensive correctness, performance, caching, API ergonomics, and QGIS export overhaul across all four subsystems of Pourpoint, opening the **`0.6.0`** release train (`0.6.0rc1` → `0.6.0`). Breaking public API, default, and `vectors.gpkg` internal-format changes are explicitly allowed where warranted by a cleaner, faster, or more consistent design; do not retain legacy compatibility shims unless separately required.
+
+This vision originates from [discussion #231](https://github.com/pourpoint-tools/pourpoint/issues/231) and designates #231 for completion by implementation and verification of the agreed `0.6.0` scope (publishing this document leaves #231 open). Work spans five cohesive tracks (deliverable in focused increments or PRs) plus two evidence-gated explorations (SQLite cache page-size/schema selection and hybrid Rust kernel evaluation). Evaluating whether a future HFX `0.5.0` format revision is warranted remains explicitly outside this vision and deferred until after Pourpoint `0.6.0` improvements are measured.
+
+## Track 1 — Correctness and safety fixes
+
+Fix all verified correctness, edge-case, and resource-lifecycle bugs identified in the `v0.5.0` (`efed954`) scan:
+
+- **Sliced nested Arrow arrays in `compact_dictionaries`**: In `src/pourpoint/_selection.py` (`_compact_dictionary_values`, lines 21–43), `array.field(i)` already slices struct/union children to `len(array)`, so passing `offset=array.offset` to `pa.Array.from_buffers` applies the offset a second time and crashes on any sliced `StructArray` (including HFX `bbox`: verified live as `ArrowInvalid: Struct child array #0 has length smaller than expected for struct array (2 < 4)`). Fix offset/length handling across all sliced nested Arrow types (`struct`, `union`, `list`, `large_list`, `fixed_size_list`, `map`, `list_view`, `large_list_view`, `run_end_encoded`).
+- **Windows local paths and `file://` URIs**: In `src/pourpoint/storage.py` (`Source.__init__`, lines 140–182), `urlsplit("C:/bundle")` treats `"c"` as a URL scheme and raises `ValueError("dataset root must be local, HTTP(S), or s3://")`, and `Path(unquote(parsed.path))` mangles `file:///C:/...` on Windows. Classify Windows drive paths as local filesystem paths and decode `file://` URIs properly across platforms.
+- **QGIS bundle SQLite lifecycle, XML groups, CRS ellipsoid, and BigTIFF**:
+  - Explicitly close the `sqlite3.Connection` in `QGISBundle.write` (`src/pourpoint/qgis.py`, line 352; `with sqlite3.connect(...) as db:` only manages transactions, leaking open file descriptors and Windows file locks).
+  - Deduplicate or reuse `<layer-tree-group>` elements when duplicate target names appear across `add_result` calls (`src/pourpoint/qgis.py`, lines 348–351) rather than creating orphaned empty groups.
+  - Derive `<ellipsoidacronym>` from the layer CRS rather than hardcoding `"EPSG:7030"` (`src/pourpoint/qgis.py`, line 61).
+  - Pass `BIGTIFF="IF_SAFER"` (or equivalent safe GeoTIFF creation option) in `rasterio.open(..., "w", ...)` (`src/pourpoint/qgis.py`, lines 472–484) so exports exceeding 4 GiB do not fail.
+- **Target coordinates outside `float32` bounds**: Huge finite coordinates (for example `Point(1e40, 0)`, which Shapely reports `is_valid=True`) currently pass `_select`'s validity check and crash `conservative_bounds` (`src/pourpoint/spatial.py`, lines 18–19; `src/pourpoint/operations.py`, lines 132–160) with `ValueError("bbox exceeds float32 coordinate range")`, aborting entire batches instead of failing only the affected target. Turn out-of-range target geometries into a target-local `OperationError` (such as `selection.invalid_target` or an equivalent documented target-local code).
+- **Negative slice bounds in `_refine`**: Clamp `bottom` and `right` to `>= 0` in `src/pourpoint/refinement.py` (lines 328–334) so negative row/column projections cannot silently wrap from the end of `mask`.
+- **Spurious `rivers.ambiguous_direction` in `select_rivers(include_downstream=True)`**: In `src/pourpoint/rivers.py` (lines 178–196), compute `reached` before running `_oriented_line` on partial initial rivers so rivers that are wholly downstream of another selected river (and replaced with their full source geometry anyway) do not fail unnecessarily.
+- **Additional integrity and input-validation fixes**:
+  - Guard `size_bytes == 0` in `open_artifact(..., bounded=True)` and avoid reading `[0, size)` twice when `size <= 65536` (`src/pourpoint/storage.py`, lines 368–370).
+  - Reject non-finite (`NaN`) Parquet `bbox` statistics in `RowGroupBounds` (`src/pourpoint/spatial.py`, lines 52–58) and treat null or `NaN` `bbox` leaf fields as unknown (retained conservatively) in `overlap()` (`src/pourpoint/spatial.py`, lines 85–93).
+  - Reject `bool` for `radius` in `delineate` and `snap` (`src/pourpoint/operations.py:409`, `src/pourpoint/rivers.py:247`).
+  - Validate `type(include_downstream) is bool` and `footprint.is_valid` in `select_rivers`.
+  - Align `bounds()` in `src/pourpoint/metadata.py` (line 28) with the `BoundingBox` `Sequence` type rather than accepting only `list`/`tuple`/ndarray.
+  - Deep-freeze nested structures in `SpatialManifest` (`declarations`, `relationships`, `provenance`) (`src/pourpoint/metadata.py`, lines 274–290) so caller mutations to `result.provenance`, `network.declarations`, or `fabric.manifest.declarations` cannot corrupt live state or sibling results.
+
+## Track 2 — Storage, caching, and vector traversal
+
+Improve Pourpoint's own reader, cache, and traversal paths on canonical HFX 0.4.0 first, before considering any format changes:
+
+- **Automatic remote-only disk caching with explicit override**: Default `HydroFabric` / `Source` caching (`cache: bool | Literal["auto"] = "auto"` or `None`) to disk-cache remote sources (`http`, `https`, `s3`) automatically while keeping disk caching disabled by default for local filesystem paths. Allow callers to override explicitly with `cache=True` or `cache=False` (retaining `offline=True` compatibility when caching is enabled).
+- **Fix local-bundle `local_stat` bricking**: When disk caching is explicitly enabled on a local bundle, never persist `(dev, ino, size, mtime_ns)` across sessions in SQLite `metadata` (`src/pourpoint/storage.py`, lines 272–273 and 344–360). Verified in `v0.5.0`: touching or copying an identical-content local bundle permanently breaks future opens with `ValueError: <file>: artifact changed`. Keep within-session local mutation checks using the current session's `stat()`.
+- **Fix `prefetch_parquet` double-read, double-hash, and inflated `cache_hit_bytes`**: In `src/pourpoint/storage.py` (lines 440–478), `prefetch_parquet` reads cached chunks from SQLite, SHA-256 hashes them, increments `cache_hit_bytes`, and discards the bytes right before `read_row_group` reads, hashes, and counts them a second time (verified on a 6.7 KB Parquet file: a cold run reported 11,670 `cache_hit_bytes`, and a warm run read/hashed 18,461 bytes). Skip already-cached ranges during prefetch (or read/check without discarding/double-counting), and eliminate per-row-group `ThreadPoolExecutor` creation and lockstep wave barriers.
+- **SQLite concurrency and worker coordination**: Configure SQLite WAL mode and an appropriate busy timeout in `src/pourpoint/cache.py` (lines 16–22), and share coordinated cache/immutable-metadata access safely across `_fork()` batch workers (`src/pourpoint/fabric.py`, lines 87–100) rather than opening independent competing rollback-journal SQLite connections and duplicating static Parquet metadata per worker.
+- **Vector and traversal speedups**:
+  - Add bounded in-memory caching of decoded IPC batches in `_IndexedIPC` (`src/pourpoint/vectors.py`, lines 103–122) so multi-hop BFS in `traverse()` does not re-read, SHA-256 hash, and re-validate the same 65,536-row batch on every hop.
+  - Vectorize `_IndexedIPC` binary search with array `np.searchsorted`, replace per-row `to_pylist()` + `sorted(set(...))` validation in `VectorReader.relationships()` (`src/pourpoint/vectors.py`, lines 271–280) with vectorized Arrow/NumPy checks, vectorize the post-traversal catchment `level` check (`src/pourpoint/operations.py`, line 170), and vectorize `_assess_cuts` (`src/pourpoint/operations.py`, lines 51–58).
+  - Eliminate duplicate `to_pylist()` conversions (`src/pourpoint/vectors.py`, lines 187–191 and 307), make `VectorReader._adjacency` true LRU by calling `move_to_end` on hits (lines 300–315), and eliminate `VectorReader.candidates()` reading matching Parquet row groups twice (lines 236–247) by caching or reusing already-read columns when appropriate.
+  - Evaluate removing unused `Source.read_ranges` (`src/pourpoint/storage.py`, line 212; not exported in `pourpoint.__all__`) if nothing outside tests depends on it.
+- **Benchmark-gated SQLite cache format / page-size redesign**: Small reads inside an 8 MiB cached chunk currently re-read and SHA-256-hash the whole SQLite BLOB (`src/pourpoint/cache.py`, lines 36–47; `src/pourpoint/storage.py`, line 85 setting `cache_type="none"`), and `start < ? AND end > ?` scans earlier ranges linearly. **Do not commit to a fixed page size or new cache schema from speculation**: after fixing the reader and prefetch bugs above, run realistic cold and warm random-access benchmarks against real remote HFX 0.4.0 bundles (such as GRIT, MERIT, or TDX) to choose and justify any cache layout or page-size change.
+- **HFX 0.5.0 boundary**: Keep the canonical HFX 0.4.0 contract (`../hfx/docs/site/index.md`) unchanged in this vision. Only after Pourpoint `0.6.0` fixes are measured on real remote workloads will the owner decide separately whether an HFX 0.5.0 redesign is warranted.
+
+## Track 3 — Raster refinement, normalization, and benchmarked Rust exploration
+
+- **Unified `.geometry` result terminology and double-union elimination**:
+  - Rename `FootprintRefinement.footprint` to `.geometry` and expose `.geometry` (`Polygon | MultiPolygon`) on `GranularRefinement` so every geometry-bearing result uses `.geometry` consistently.
+  - Reuse the merged watershed geometry already computed during `_refine()` (`src/pourpoint/refinement.py`, lines 348–350) for `GranularRefinement.geometry` and `DelineationResult.geometry`, eliminating the redundant second full-basin union in `delineate(refine=True, merge=True)` (`src/pourpoint/operations.py`, lines 428–435), **provided**:
+    1. retaining it does not unnecessarily increase memory consumption (keeping one dissolved outer boundary polygon, without duplicating or eagerly caching per-subbasin geometries), and
+    2. geometric/topological equivalence with `merge(subbasins=refined.subbasins)` holds and is verified.
+  - Prepare the dissolved watershed `geometry` once with `shapely.prepare(geometry)` and short-circuit `covers`/`intersects` during granular per-subbasin clipping (`src/pourpoint/refinement.py`, lines 361–365).
+- **Optimize Python and NumPy first**:
+  - Replace the pure-Python pixel DFS in `_trace()` (`src/pourpoint/refinement.py`, lines 241–262) with vectorized NumPy traversal (verified 54× faster on 1M pixels: 1,450 ms → 26.6 ms).
+  - Replace the multi-pass `normalize_direction()` (`src/pourpoint/rasters.py`, lines 34–59) with a single-pass 256-byte lookup table on `values.view(np.uint8)` (verified 13.8× faster on 4M pixels: 72.1 ms → 5.2 ms, ~4× lower peak RAM).
+  - Fix raster memory spikes and redundant I/O: avoid `float64` 8× promotion in `src/pourpoint/qgis.py` line 471 (`np.where(valid, values, nodata)`), skip unconditional `read_masks()` when a GeoTIFF has no internal mask band (`src/pourpoint/rasters.py`, lines 517 and 520), avoid slicing `accumulation[accumulation_valid]` twice and running `np.isfinite` on `int32` (line 527), use zero-copy `selected.view(np.uint8)` (`src/pourpoint/refinement.py`, line 343), cache `pyproj.Transformer.from_crs` (`rasters.py:450`, `refinement.py:321,347`), and reuse the initial 64 KiB header read in `raster_file()` when `cache=False` (`src/pourpoint/rasters.py`, lines 354–360).
+- **Active, evidence-gated Rust hybrid exploration**:
+  - After optimizing Python and NumPy first, actively experiment with hybrid Rust kernels for measured computational hotspots (starting with `_trace()`, and optionally `snap()` or other hot loops), following the incremental behavior-driven workflow of [`erkamyaman/rust-anything`](https://github.com/erkamyaman/rust-anything) (behavioral recording of inputs, outputs, exceptions, and side effects; piece-by-piece porting; shadow-mode parity verification).
+  - **Adopt Rust into production only if realistic end-to-end watershed benchmarks prove it worthwhile** over the optimized Python/NumPy baseline and justify native wheel build/CI complexity (for example `maturin` platform wheels vs pure-Python `py3-none-any`).
+  - **Explicit boundary**: Keep polygon overlay and union on GEOS/Shapely (refer to unresolved Kainji hole/validity discrepancies in `planning/experiments/giant_watershed_union/results/2026-11-02-kainji/README.md`). Retain `obstore`, `pyarrow`, `rasterio`/GDAL, and `pyproj`.
+
+## Track 4 — Rivers, snapping, and batch scheduling
+
+- **Fast `snap()`**: Replace the unpruned 132-`Geod.inv()`-per-segment golden-section scan (`src/pourpoint/rivers.py`, lines 268–302; verified 517 ms for one target against 500 rivers / 9,500 segments) with conservative spatial bounding-box pruning, vectorized coordinate/distance bounds, single-evaluation golden section or Brent's method, and pre-validated/reusable stream geometry state across batch `delineate(..., snap_onto=...)` calls, preserving WGS84 ellipsoidal accuracy, input-order tie-breaking, validation rules, and `OperationError` codes.
+- **Efficient `select_rivers()` and spatial predicates**:
+  - Eliminate 2–3× redundant river record reads across `candidates` → `river_network(pieces)` → `river_network(all_ids)` (`src/pourpoint/rivers.py`, lines 163–196).
+  - Route subbasin-sequence footprints through bounded `union_subbasins` instead of raw `shapely.union_all` (`src/pourpoint/rivers.py`, line 156).
+  - Prepare polygon targets and footprints with `shapely.prepare()` before candidate filtering in both `select_rivers` and `select_upstream_subbasins` (`src/pourpoint/operations.py`, lines 161–163).
+  - Replace the $O(|\text{partial rivers}| \times |\text{nodes}|)$ linear scan of `network.nodes` in `_oriented_line` (`src/pourpoint/rivers.py`, lines 78–85) with an $O(1)$ node ID lookup.
+- **Dynamic batch scheduling and `_WORKSPACE` lock refinement**: Replace static round-robin index slicing in `src/pourpoint/_batch.py` (line 59) with a dynamic work queue (preserving worker-owned reader isolation and result ordering) so heterogeneous basins do not strand idle workers, and bypass the global `_WORKSPACE` lock in `src/pourpoint/_union.py` (lines 32–34) for small or single-part merges (also avoiding unnecessary `shapely.union_all` overhead on single valid polygons).
+
+## Track 5 — `0.6.0` API ergonomics and QGIS export redesign
+
+- **Composable operations accepting each other's results**:
+  - `merge()` accepts `SelectionResult`, `GranularRefinement`, `DelineationResult`, and `FootprintRefinement` (reusing `.geometry` when already materialized rather than re-unioning) alongside subbasin sequences.
+  - `select_rivers()` accepts `SelectionResult`, `DelineationResult`, `GranularRefinement`, and `FootprintRefinement` directly (reusing `.geometry` when available, otherwise using bounded `union_subbasins` or equivalent non-redundant footprint construction).
+  - Ensure `refine()` composes cleanly across selection and unrefined delineation results while preserving `UpstreamCoverage` diagnostics.
+  - Update `README.md` (including the combined workflow around line 179), site docs (`docs/site/`), and NumPy docstrings to match the `0.6.0` API, `.geometry` naming, caching default, and updated `vectors.gpkg` layout.
+- **`QGISBundle` export performance and collective `source_arrow` storage**:
+  - Replace N×M per-feature `UPDATE` statements (`src/pourpoint/qgis.py`, lines 398–429) with single multi-column `INSERT` statements via `executemany`, hoist schema discovery once per backing table, pass `feature.wkb` directly for unchanged `Feature` objects instead of eager WKB decode→re-encode (`qgis.py`, lines 240 and 411), skip `compact_dictionaries` when a table has no dictionary-encoded columns (`src/pourpoint/_selection.py`, lines 46–60), and batch `river_connections` inserts (`qgis.py`, lines 446–452).
+  - Store lossless Arrow provenance (`source_arrow`) **collectively per layer** (and collectively for nodes, cleanly supporting heterogeneous backing schemas if mixed in one layer) rather than writing a separate full IPC stream per row (`feature:{fid}` / `node`). Keep `stream_id`/`part` byte segmentation for streams exceeding SQLite row limits, eliminating repeated schemas and metadata across rows.
+  - Update `QGISBundle.add_result(granular_refinement)` (`src/pourpoint/qgis.py`, lines 290–312) to export both `"subbasins"` and `"watershed"` (from `GranularRefinement.geometry`, matching `DelineationResult` with no implicit merging during export).
+- **`Feature` and `Attributes` ergonomics**:
+  - Replace whole-table `Feature` equality/unhashable dataclass behavior and giant table-dumping `repr()` (`src/pourpoint/features.py`, lines 50–120) with crisp `repr` and individual-feature value comparison. The implementing agent may experiment with exact hashing vs unhashable single-row equality trade-offs, starting from single-row Arrow equality, readable `repr`, and consistent hashing on `(type, id, wkb)` (and clipped `portion` for `ClippedRiver`).
+  - Keep whole-unit `Feature.geometry` uncached on `Subbasin`/`River` so large delineations preserve 16 GB laptop memory bounds.
+  - Implement $O(1)$ `Attributes.__contains__` and a concise `Attributes.__repr__` (`src/pourpoint/features.py`, lines 14–48).
+
+## Constraints and boundaries
+
+- Keep canonical HFX 0.4.0 (`../hfx/docs/site/index.md`) as the unchanged input contract; do not normalize source hydrology, repair/simplify geometries, fill holes, or recompute source attributes on clipped pieces.
+- Preserve pinned manifest snapshot semantics when disk caching is active, strong ETag/version/range checks on remote reads, and `UpstreamCoverage` safety semantics.
+- Maintain strongly typed Python (`ty`), Ruff linting/formatting, NumPy-style public docstrings (`AGENTS.md`), `uv` execution, and test-first development.
+- Separate functional correctness and geometric equivalence tests from timing and memory benchmarks. In particular:
+  - Prove every Track 1 bug fix with targeted regression tests.
+  - Verify `GranularRefinement.geometry` is topologically equivalent to `merge(subbasins=refined.subbasins)` and does not introduce material memory regressions.
+  - Run `rust-anything`-style behavioral parity checks and realistic end-to-end benchmarks before adopting any Rust kernel or new SQLite cache layout/page size.
+  - Benchmark `QGISBundle.write`, `snap()`, `select_rivers()`, and `delineate()` before and after changes on representative workloads (including large multi-thousand-feature exports and real remote HFX 0.4.0 bundles).
