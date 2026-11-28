@@ -361,12 +361,12 @@ class VectorReader:
                 cols = [selected_disc[n] if n in discovery else selected_extra[n] for n in names]
                 combined = pa.Table.from_arrays(cols, schema=target_schema)
             else:
-                combined = selected_disc.select(names)
+                combined = selected_disc.select(names if names else ["id"])
             pieces.append(compact_dictionaries(combined))
         self.source.check_artifact(self.family.data)
         if not pieces:
             return _empty(self.schema, names)
-        return pa.concat_tables(pieces)
+        return pa.concat_tables(pieces).select(names)
 
     def relationships(self, ids: Iterable[int], columns: Sequence[str] | None = None) -> pa.Table:
         """Return supplied immediate relationships without inferring flow or outlets."""

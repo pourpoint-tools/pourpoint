@@ -364,20 +364,30 @@ def test_concurrent_prefetch_preserves_checks(origin: tuple[str, OriginState], t
 
     url, state = origin
     sink = pa.BufferOutputStream()
-    table = pa.table({"id": list(range(50000)), "payload": [bytes([i % 256]) * 40 for i in range(50000)]})
+    table = pa.table({"id": list(range(1, 181)), "payload": [bytes([i % 256]) * 95_000 for i in range(1, 181)]})
     pq.write_table(table, sink, compression=None, use_dictionary=False)
     state["data"] = sink.getvalue().to_pybytes()
+    assert len(state["data"]) > 16 * 1024 * 1024
     mark = fingerprint(state["data"])
     options = {"client_options": {"allow_http": True}, "retry_config": {"max_retries": 0}}
-    with Source(url, storage_options=options, cache=True, cache_dir=tmp_path) as source:
-        source.open_artifact("file", mark)
-        identity = source._files["file"].identity
-        assert source._range("file", identity, 100, 150) == state["data"][100:150]
+    with Source(url, storage_options=options, cache=True, cache_dir=tmp_path / "ok") as source:
+        source.range_workers = 2
+        source.prefetch_parquet("file", mark, 0, ["payload"])
+        reqs_after_prefetch = len(state["requests"])
+        assert source.stats.requests > 1
+        assert source.parquet("file", mark).read_row_group(0, columns=["payload"]) == table.select(["payload"])
+        assert len(state["requests"]) == reqs_after_prefetch
+
+    with Source(url, storage_options=options, cache=True, cache_dir=tmp_path / "bad") as source:
+        source.range_workers = 2
+        reader = source.parquet("file", mark)
         state["mode"] = "etag"
         with pytest.raises(ValueError, match="ETag"):
-            source._range("file", identity, 200, 300)
+            source.prefetch_parquet("file", mark, 0, ["payload"])
+        state["mode"] = "good"
+        assert reader.read_row_group(0, columns=["id"])["id"].to_pylist() == list(range(1, 181))
     with (
-        Source(url, storage_options=options, cache=True, cache_dir=tmp_path, offline=True) as source,
+        Source(url, storage_options=options, cache=True, cache_dir=tmp_path / "empty", offline=True) as source,
         pytest.raises(ValueError, match="offline.*missing"),
     ):
         source.open_artifact("file", mark)

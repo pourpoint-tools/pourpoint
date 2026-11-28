@@ -448,6 +448,10 @@ def test_candidates_reads_matching_row_groups_once(tmp_path: Path, monkeypatch: 
         assert res_id["id"].to_pylist() == [30, 10, 20]
         assert [c[0] for c in calls] == [0, 1]
 
+        res_empty = reader.candidates((1, 1, 3, 1), columns=[])
+        assert res_empty.num_rows == 3
+        assert res_empty.num_columns == 0
+
         calls.clear()
         # Asking for extra columns should read discovery once and extra columns (not discovery again) once.
         res_full = reader.candidates((1, 1, 3, 1), columns=["id", "source_value"])
