@@ -5,6 +5,27 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 
+def _has_dictionary(dtype: pa.DataType) -> bool:
+    if pa.types.is_dictionary(dtype):
+        return True
+    if isinstance(dtype, pa.ExtensionType):
+        return _has_dictionary(dtype.storage_type)
+    if pa.types.is_struct(dtype) or pa.types.is_union(dtype):
+        return any(_has_dictionary(field.type) for field in dtype)
+    if pa.types.is_map(dtype):
+        return _has_dictionary(dtype.key_type) or _has_dictionary(dtype.item_type)
+    if (
+        pa.types.is_list(dtype)
+        or pa.types.is_large_list(dtype)
+        or pa.types.is_fixed_size_list(dtype)
+        or pa.types.is_list_view(dtype)
+        or pa.types.is_large_list_view(dtype)
+        or pa.types.is_run_end_encoded(dtype)
+    ):
+        return _has_dictionary(dtype.value_type)
+    return False
+
+
 def _compact_dictionary_values(array: pa.Array) -> pa.Array:
     if isinstance(array, pa.DictionaryArray):
         # Sorted original indices preserve the meaning of ordered dictionaries.
@@ -17,10 +38,32 @@ def _compact_dictionary_values(array: pa.Array) -> pa.Array:
         return pa.DictionaryArray.from_arrays(indices, values, ordered=array.type.ordered)
     if isinstance(array, pa.ExtensionArray):
         return pa.ExtensionArray.from_storage(array.type, _compact_dictionary_values(array.storage))
-    children: list[pa.Array]
-    if pa.types.is_struct(array.type) or pa.types.is_union(array.type):
-        children = [array.field(i) for i in range(array.type.num_fields)]
-    elif (
+    if pa.types.is_struct(array.type):
+        if array.type.num_fields == 0:
+            return array
+        # StructArray.field(i) already slices children to (array.offset, len(array)).
+        children = [_compact_dictionary_values(array.field(i)) for i in range(array.type.num_fields)]
+        mask = array.is_null() if array.null_count else None
+        return pa.StructArray.from_arrays(children, fields=list(array.type), mask=mask)
+    if pa.types.is_union(array.type):
+        children = [_compact_dictionary_values(array.field(i)) for i in range(array.type.num_fields)]
+        if array.type.mode == "sparse":
+            # Sparse union field(i) is already sliced; slice type_codes buffer to offset=0.
+            type_codes_buf = array.buffers()[1]
+            if array.offset:
+                type_codes_buf = type_codes_buf.slice(array.offset, len(array))
+            return pa.Array.from_buffers(
+                array.type, len(array), [None, type_codes_buf], null_count=0, offset=0, children=children
+            )
+        return pa.Array.from_buffers(
+            array.type,
+            len(array),
+            array.buffers()[: array.type.num_buffers],
+            null_count=array.null_count,
+            offset=array.offset,
+            children=children,
+        )
+    if (
         pa.types.is_list(array.type)
         or pa.types.is_large_list(array.type)
         or pa.types.is_fixed_size_list(array.type)
@@ -28,19 +71,24 @@ def _compact_dictionary_values(array: pa.Array) -> pa.Array:
         or pa.types.is_list_view(array.type)
         or pa.types.is_large_list_view(array.type)
     ):
-        children = [array.values]
-    elif pa.types.is_run_end_encoded(array.type):
-        children = [array.run_ends, array.values]
-    else:
-        return array
-    return pa.Array.from_buffers(
-        array.type,
-        len(array),
-        array.buffers()[: array.type.num_buffers],
-        null_count=array.null_count,
-        offset=array.offset,
-        children=[_compact_dictionary_values(child) for child in children],
-    )
+        return pa.Array.from_buffers(
+            array.type,
+            len(array),
+            array.buffers()[: array.type.num_buffers],
+            null_count=array.null_count,
+            offset=array.offset,
+            children=[_compact_dictionary_values(array.values)],
+        )
+    if pa.types.is_run_end_encoded(array.type):
+        return pa.Array.from_buffers(
+            array.type,
+            len(array),
+            array.buffers()[: array.type.num_buffers],
+            null_count=array.null_count,
+            offset=array.offset,
+            children=[_compact_dictionary_values(array.run_ends), _compact_dictionary_values(array.values)],
+        )
+    return array
 
 
 def compact_dictionaries(table: pa.Table) -> pa.Table:
@@ -49,11 +97,13 @@ def compact_dictionaries(table: pa.Table) -> pa.Table:
     Call after Arrow take/filter has gathered ordinary value buffers. Arrow's
     gather kernels retain dictionaries even when only one entry is selected.
     """
-    if not table.num_columns:
+    if not table.num_columns or not any(_has_dictionary(column.type) for column in table.columns):
         return table
     return pa.Table.from_arrays(
         [
             pa.chunked_array([_compact_dictionary_values(chunk) for chunk in column.chunks], type=column.type)
+            if _has_dictionary(column.type)
+            else column
             for column in table.columns
         ],
         schema=table.schema,

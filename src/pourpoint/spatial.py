@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import cast
 
 import numpy as np
@@ -12,10 +13,16 @@ import pyarrow.parquet as pq
 from pourpoint.metadata import BoundingBox, Bounds, bounds
 
 
+def in_float32_range(checked: Bounds) -> bool:
+    """Return True when all envelope coordinates are finite and within float32 range."""
+    limit = float(np.finfo(np.float32).max)
+    return all(isfinite(v) and abs(v) <= limit for v in checked)
+
+
 def conservative_bounds(value: BoundingBox) -> Bounds:
     """Expand by one float32 step to include rounded, degenerate HFX bounds."""
     checked = bounds(value)
-    if any(abs(v) > float(np.finfo(np.float32).max) for v in checked):
+    if not in_float32_range(checked):
         raise ValueError("bbox exceeds float32 coordinate range")
     return cast(
         Bounds,
@@ -54,7 +61,10 @@ class RowGroupBounds:
                 stat is None or not stat.has_min_max or stat.null_count is None or stat.null_count > 0 for stat in stats
             ):
                 continue
-            self.bounds[:, group_id] = stats[0].min, stats[1].min, stats[2].max, stats[3].max
+            values = (stats[0].min, stats[1].min, stats[2].max, stats[3].max)
+            if any(not isfinite(float(v)) for v in values):
+                continue
+            self.bounds[:, group_id] = values
             self.known_bounds[group_id] = True
 
     @property
@@ -84,7 +94,13 @@ def overlap(table: pa.Table, envelope: Bounds) -> npt.NDArray[np.bool_]:
         return np.ones(table.num_rows, dtype=np.bool_)
     array = table["bbox"].combine_chunks()
     unknown = array.is_null().to_numpy(zero_copy_only=False)
-    values = [array.field(k).to_numpy(zero_copy_only=False) for k in ("xmin", "ymin", "xmax", "ymax")]
+    values: list[npt.NDArray[np.float64]] = []
+    for k in ("xmin", "ymin", "xmax", "ymax"):
+        col = array.field(k)
+        unknown |= col.is_null().to_numpy(zero_copy_only=False)
+        arr = col.to_numpy(zero_copy_only=False).astype(np.float64, copy=False)
+        unknown |= ~np.isfinite(arr)
+        values.append(arr)
     return unknown | (
         (values[0] <= envelope[2])
         & (values[1] <= envelope[3])

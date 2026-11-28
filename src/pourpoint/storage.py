@@ -14,11 +14,12 @@ import sys
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from threading import Lock
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, BinaryIO, cast
 from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
 from weakref import WeakSet
 
 import obstore
@@ -98,6 +99,28 @@ class _ArtifactFile(AbstractBufferedFile):
         return self.source._range(self.path, self.identity, start, end)
 
 
+_EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+
+def _is_windows_drive_path(text: str) -> bool:
+    return (len(text) >= 2 and text[0].isascii() and text[0].isalpha() and text[1] == ":") or text.startswith("\\\\")
+
+
+def _file_uri_to_local_path(parsed_path: str, *, is_windows: bool | None = None) -> str:
+    if os.name == "nt" if is_windows is None else is_windows:
+        decoded = unquote(parsed_path)
+        if (
+            len(decoded) >= 3
+            and decoded[0] == "/"
+            and decoded[1].isascii()
+            and decoded[1].isalpha()
+            and decoded[2] == ":"
+        ):
+            decoded = decoded[1:]
+        return str(PureWindowsPath(decoded))
+    return url2pathname(parsed_path)
+
+
 class Source:
     """Own a dataset's configured store and open artifacts.
 
@@ -127,7 +150,9 @@ class Source:
         self._storage_options = dict(storage_options or {})
         self._children: dict[str, Source] = {}
         options = dict(storage_options or {})
-        parsed = urlsplit(str(root))
+        raw = str(root)
+        is_win_path = not isinstance(root, Path) and _is_windows_drive_path(raw)
+        parsed = urlsplit("" if is_win_path else raw)
         self._origin = parsed.scheme, parsed.netloc
         self._local_root: Path | None = None
         self._closed = False
@@ -137,10 +162,11 @@ class Source:
         self._bounded: set[str] = set()
         self._parquet: dict[str, pq.ParquetFile] = {}
         self._json: dict[str, tuple[Fingerprint | None, dict[str, object]]] = {}
-        if isinstance(root, Path) or not parsed.scheme or parsed.scheme == "file":
-            if options or (parsed.scheme == "file" and parsed.netloc):
+        if isinstance(root, Path) or is_win_path or not parsed.scheme or parsed.scheme == "file":
+            if options or (parsed.scheme == "file" and (parsed.netloc or parsed.query or parsed.fragment)):
                 raise ValueError("local sources require a local path and no storage options")
-            self._local_root = Path(unquote(parsed.path) if parsed.scheme == "file" else root).expanduser().resolve()
+            local_target = _file_uri_to_local_path(parsed.path) if parsed.scheme == "file" else root
+            self._local_root = Path(local_target).expanduser().resolve()
             self._store: ObjectStore = LocalStore(self._local_root)
             location: object = self._local_root.as_uri()
         else:
@@ -365,11 +391,21 @@ class Source:
         stream = self._files[path]
         if bounded and path not in self._bounded:
             size = fingerprint.size_bytes
-            count = min(65536, size)
-            for start, digest in ((0, fingerprint.head_sha256), (size - count, fingerprint.tail_sha256)):
-                data = self._range(path, stream.identity, start, start + count)
-                if hashlib.sha256(data).hexdigest() != digest:
+            if size == 0:
+                self.check_artifact(path)
+                if fingerprint.head_sha256 != _EMPTY_SHA256 or fingerprint.tail_sha256 != _EMPTY_SHA256:
                     raise ValueError(f"{path}: bounded SHA-256 mismatch")
+            elif size <= 65536:
+                data = self._range(path, stream.identity, 0, size)
+                actual = hashlib.sha256(data).hexdigest()
+                if actual != fingerprint.head_sha256 or actual != fingerprint.tail_sha256:
+                    raise ValueError(f"{path}: bounded SHA-256 mismatch")
+            else:
+                count = 65536
+                for start, digest in ((0, fingerprint.head_sha256), (size - count, fingerprint.tail_sha256)):
+                    data = self._range(path, stream.identity, start, start + count)
+                    if hashlib.sha256(data).hexdigest() != digest:
+                        raise ValueError(f"{path}: bounded SHA-256 mismatch")
             self._bounded.add(path)
         stream.seek(0)
         return cast(BinaryIO, stream)

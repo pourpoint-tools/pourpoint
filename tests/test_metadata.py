@@ -234,3 +234,49 @@ def test_spatial_manifest_rejects_invalid_catchment_connectivity(value: object) 
     data["catchment_connectivity"] = value
     with pytest.raises(ValueError):
         SpatialManifest.parse(data)
+
+
+def test_bounds_accepts_custom_sequence_and_rejects_bytes_and_str() -> None:
+    from collections.abc import Sequence
+
+    from pourpoint.metadata import bounds
+
+    class CustomBox(Sequence[float]):
+        def __init__(self, coords: tuple[float, float, float, float]) -> None:
+            self._coords = coords
+
+        def __getitem__(self, index: int | slice) -> float | Sequence[float]:  # type: ignore[override]
+            return self._coords[index]
+
+        def __len__(self) -> int:
+            return 4
+
+    assert bounds(CustomBox((-1.0, 2.0, 3.0, 4.0))) == (-1.0, 2.0, 3.0, 4.0)
+    for bad in ("abcd", b"abcd", bytearray(b"abcd")):
+        with pytest.raises(ValueError, match="bbox"):
+            bounds(bad)
+
+
+def test_spatial_manifest_deep_freezes_nested_declarations_and_relationships() -> None:
+    from pourpoint.metadata import SpatialManifest
+
+    data = spatial_manifest_data()
+    data["artifacts"]["rel.arrow"] = data["artifacts"]["rivers.arrow"]
+    data["artifacts"]["rel.json"] = data["artifacts"]["rivers.json"]
+    data["relationships"] = {
+        "catchments": {
+            "data": "rel.arrow",
+            "directory": "rel.json",
+            "count": 3,
+            "columns": {"upstream_ids": {"source_domain": "catchments", "target_domain": "catchments"}},
+            "feature_artifacts": {
+                "catchments": {"data": "catchments.parquet", "data_sha256": "a" * 64},
+            },
+        }
+    }
+    data["auxiliary"] = [{"schema": "hfx.aux.d8_raster.v2", "metadata": {"crs": "EPSG:4326"}}]
+    manifest = SpatialManifest.parse(data)
+    with pytest.raises(TypeError):
+        manifest.declarations["auxiliary"][0]["metadata"]["crs"] = "EPSG:3857"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        manifest.relationships["catchments"]["columns"]["upstream_ids"]["target_domain"] = "rivers"  # type: ignore[index]

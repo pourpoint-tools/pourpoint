@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from collections import OrderedDict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import cast
 
 import numpy as np
@@ -258,7 +258,7 @@ class VectorReader:
                 cast(str, declaration["directory"]),
                 self.family.count,
             )
-            declared = cast(dict[str, object], declaration["columns"])
+            declared = cast(Mapping[str, object], declaration["columns"])
             if set(reader.schema.names) != {"id", *declared}:
                 raise ValueError("relationship columns disagree with declaration")
             for field in reader.schema:
@@ -287,7 +287,7 @@ class VectorReader:
         one call's returned IDs and visited workspace necessarily scale with its result.
         """
         declaration = self.manifest.relationships[self.domain]
-        columns = cast(dict[str, dict[str, object]], declaration["columns"])
+        columns = cast(Mapping[str, Mapping[str, object]], declaration["columns"])
         if relationship not in columns or columns[relationship]["target_domain"] != self.domain:
             raise ValueError("traversal requires a declared same-domain relationship")
         self.source.check_artifact(self.family.data)

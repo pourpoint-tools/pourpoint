@@ -8,7 +8,8 @@ import sqlite3
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Buffer, Sequence
+from collections.abc import Buffer, Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
@@ -16,6 +17,7 @@ from uuid import uuid4
 
 import numpy as np
 import pyarrow as pa
+import pyproj
 import rasterio
 from rasterio.crs import CRS  # ty: ignore[unresolved-import]
 from shapely.geometry.base import BaseGeometry
@@ -52,13 +54,35 @@ def _text(parent: ET.Element, name: str, value: str) -> ET.Element:
     return element
 
 
+def _ellipsoid_acronym(crs: CRS) -> str:
+    try:
+        proj_crs = pyproj.CRS.from_wkt(crs.to_wkt())
+    except Exception:
+        return ""
+    ellipsoid = proj_crs.ellipsoid
+    if ellipsoid is None:
+        return ""
+    identifier = ellipsoid.to_json_dict().get("id")
+    if isinstance(identifier, dict) and "authority" in identifier and "code" in identifier:
+        return f"{identifier['authority']}:{identifier['code']}"
+    return ellipsoid.name or ""
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {k: _thaw(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(v) for v in value]
+    return value
+
+
 def _crs(parent: ET.Element, crs: CRS) -> None:
     spatial = ET.SubElement(ET.SubElement(parent, "srs"), "spatialrefsys")
     _text(spatial, "wkt", crs.to_wkt())
     _text(spatial, "authid", crs.to_string())
     _text(spatial, "description", crs.to_string())
     _text(spatial, "projectionacronym", "longlat" if crs.is_geographic else "")
-    _text(spatial, "ellipsoidacronym", "EPSG:7030")
+    _text(spatial, "ellipsoidacronym", _ellipsoid_acronym(crs))
     _text(spatial, "geographicflag", "true" if crs.is_geographic else "false")
 
 
@@ -347,9 +371,9 @@ class QGISBundle:
         layers = ET.SubElement(project, "projectlayers")
         groups = {
             name: ET.SubElement(tree, "layer-tree-group", name=name, checked="Qt::Checked", expanded="1")
-            for name in self._groups
+            for name in dict.fromkeys(self._groups)
         }
-        with sqlite3.connect(folder / "vectors.gpkg") as db:
+        with closing(sqlite3.connect(folder / "vectors.gpkg")) as db, db:
             _initialize(db)
             db.executemany(
                 "INSERT INTO result_metadata VALUES (?, ?, ?, ?, ?, ?)",
@@ -357,7 +381,7 @@ class QGISBundle:
                     (
                         name,
                         index,
-                        json.dumps(dict(result.provenance)),
+                        json.dumps(_thaw(result.provenance)),
                         result.original_target.wkb if isinstance(result, DelineationResult) else None,
                         result.target.wkb if isinstance(result, (DelineationResult, SelectionResult)) else None,
                         _serialize_coverage(result.coverage),
@@ -454,7 +478,9 @@ class QGISBundle:
                     _arrow(db, table, "node_relationships", network.node_relationships)
                 for node in network.nodes:
                     _arrow(db, table, "node", compact_dictionaries(node.table.slice(node.row, 1).take([0])))
-                db.execute("INSERT INTO source_metadata VALUES (?, ?)", (table, json.dumps(dict(network.declarations))))
+                db.execute(
+                    "INSERT INTO source_metadata VALUES (?, ?)", (table, json.dumps(_thaw(network.declarations)))
+                )
         for index, (name, subset, group) in enumerate(self._rasters):
             filename = f"raster_{index}.tif"
             window = subset.window
@@ -481,6 +507,7 @@ class QGISBundle:
                 transform=window.transform,
                 nodata=nodata,
                 compress="deflate",
+                BIGTIFF="IF_SAFER",
             ) as raster:
                 raster.write(output, 1)
                 raster.write_mask(valid.astype("uint8") * 255)

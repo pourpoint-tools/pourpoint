@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from math import floor
+from math import floor, isfinite
 from typing import Literal, cast, overload
 
 import numpy as np
@@ -24,6 +24,7 @@ from pourpoint._batch import execute, workers
 from pourpoint._union import union_subbasins
 from pourpoint.fabric import HydroFabric
 from pourpoint.features import Attributes, Subbasin
+from pourpoint.metadata import bounds
 from pourpoint.rasters import MissingRastersError, RasterCoverageError, RasterGrid, RasterWindow
 from pourpoint.results import BatchResult, OperationError, SelectionResult, Target, UpstreamCoverage
 
@@ -304,15 +305,21 @@ def _refine(
         raise ValueError("window_size must be a positive odd integer")
     if (subbasins is None) == (footprint is None):
         raise ValueError("provide exactly one of subbasins or footprint")
-    if not isinstance(target, Point) or target.is_empty:
-        raise OperationError("refinement.point_required", "refinement requires a nonempty point target")
+    if not isinstance(target, Point) or target.is_empty or not all(isfinite(v) for v in target.coords[0]):
+        raise OperationError("refinement.point_required", "refinement requires a nonempty finite point target")
     combined = merge(subbasins=subbasins) if subbasins is not None else footprint
     if not isinstance(combined, (Polygon, MultiPolygon)) or combined.is_empty:
         raise OperationError("refinement.empty_mask", "refinement requires a nonempty polygon mask")
     if not combined.covers(target):
         raise OperationError("refinement.outside_mask", "target lies outside the vector mask")
     try:
-        request = fabric.rasters.prepare(combined.bounds)
+        region = bounds(combined.bounds)
+    except ValueError as error:
+        raise OperationError("refinement.no_coverage", str(error)) from error
+    if not (-180 <= region[0] < region[2] <= 180 and -90 <= region[1] < region[3] <= 90):
+        raise OperationError("refinement.no_coverage", "mask bounds are outside geographic WGS84 limits")
+    try:
+        request = fabric.rasters.prepare(region)
         window = fabric.rasters.read(request)
     except MissingRastersError as error:
         raise OperationError("refinement.missing_rasters", str(error)) from error
@@ -326,7 +333,7 @@ def _refine(
     col, row = floor(x), floor(y)
     half = window_size // 2
     top, left = max(0, row - half), max(0, col - half)
-    bottom, right = min(mask.shape[0], row + half + 1), min(mask.shape[1], col + half + 1)
+    bottom, right = max(top, min(mask.shape[0], row + half + 1)), max(left, min(mask.shape[1], col + half + 1))
     valid = (
         mask[top:bottom, left:right]
         & window.direction_valid[top:bottom, left:right]

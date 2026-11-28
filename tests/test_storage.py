@@ -444,3 +444,44 @@ def test_external_cross_origin_does_not_forward_credentials(tmp_path: Path) -> N
         other, _ = source.external("https://raster.example/file")
         assert same._storage_options == source._storage_options
         assert other._storage_options == {}
+
+
+def test_windows_drive_paths_and_file_uris(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pourpoint import storage
+
+    assert storage._is_windows_drive_path("C:/bundle")
+    assert storage._is_windows_drive_path("C:\\bundle")
+    assert not storage._is_windows_drive_path("https://example.com/bundle")
+    assert storage._file_uri_to_local_path("/C:/my%20bundle", is_windows=True) == "C:\\my bundle"
+    assert storage._file_uri_to_local_path("/tmp/my%20bundle", is_windows=False) == "/tmp/my bundle"
+
+    # Classify Windows drive-letter string as local rather than an unknown URL scheme.
+    with monkeypatch.context() as mp:
+        mp.setattr(storage, "LocalStore", lambda path: object())
+        with Source("C:/bundle") as win_source:
+            assert win_source._local_root is not None
+
+    spaced = tmp_path / "my bundle"
+    spaced.mkdir()
+    (spaced / "manifest.json").write_text('{"ok": true}')
+    with Source(spaced.as_uri()) as file_source:
+        assert file_source.read_json("manifest.json") == {"ok": True}
+
+
+def test_bounded_zero_byte_and_single_read_small_artifacts(origin: tuple[str, OriginState]) -> None:
+    url, state = origin
+    empty_fp = fingerprint(b"")
+    small = b"hello bounded artifact"
+    small_fp = fingerprint(small)
+    state["files"] = {"empty.bin": b"", "small.bin": small}
+    options = {"client_options": {"allow_http": True}}
+    with Source(url, storage_options=options) as source:
+        stream = source.open_artifact("empty.bin", empty_fp, bounded=True)
+        assert stream.read() == b""
+        assert state["requests"] == []
+        small_stream = source.open_artifact("small.bin", small_fp, bounded=True)
+        assert len(state["requests"]) == 1
+        assert small_stream.read() == small
+    bad_empty = Fingerprint(0, empty_fp.sha256, "0" * 64, empty_fp.tail_sha256)
+    with Source(url, storage_options=options) as source, pytest.raises(ValueError, match="bounded SHA-256"):
+        source.open_artifact("empty.bin", bad_empty, bounded=True)

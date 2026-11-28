@@ -336,3 +336,93 @@ def test_selection_result_and_batch_export_persist_coverage_diagnostics(tmp_path
             "unverified_unit_ids": [5],
             "reason": None,
         }
+
+
+def test_qgis_write_closes_sqlite_deduplicates_groups_derives_ellipsoid_and_uses_bigtiff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import MappingProxyType
+
+    import numpy as np
+    import rasterio
+    from affine import Affine
+    from rasterio.crs import CRS
+
+    import pourpoint.qgis as qgis_mod
+    from pourpoint.rasters import RasterGrid, RasterRequest, RasterWindow
+    from pourpoint.refinement import RasterSubset
+    from pourpoint.results import BatchResult, SelectionResult, Target, UpstreamCoverage
+
+    class TrackedConnection(sqlite3.Connection):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)
+            self.closed_explicitly = False
+
+        def close(self) -> None:
+            self.closed_explicitly = True
+            super().close()
+
+    connections: list[TrackedConnection] = []
+    real_connect = sqlite3.connect
+
+    def tracked_connect(database: object, *args: object, **kwargs: object) -> sqlite3.Connection:
+        conn = real_connect(database, *args, factory=TrackedConnection, **kwargs)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(qgis_mod.sqlite3, "connect", tracked_connect)
+
+    open_kwargs: list[dict[str, object]] = []
+    real_raster_open = rasterio.open
+
+    def tracked_open(fp: object, mode: str = "r", **kwargs: object) -> object:
+        if mode == "w":
+            open_kwargs.append(dict(kwargs))
+        return real_raster_open(fp, mode, **kwargs)
+
+    monkeypatch.setattr(qgis_mod.rasterio, "open", tracked_open)
+
+    geom = box(0, 0, 1, 1)
+    table = pa.table({"id": [1], "geometry": [geom.wkb]})
+    cov = UpstreamCoverage("complete", declared_completeness="complete", cut_counts={}, unverified_unit_ids=())
+    frozen_prov = MappingProxyType({"nested": MappingProxyType({"items": (1, 2)})})
+    sel = SelectionResult([Subbasin(table, 0)], cov, 1, geom, frozen_prov)
+    batch1 = BatchResult([sel], [Target(0, "dup", geom)], [])
+    batch2 = BatchResult([sel], [Target(0, "dup", geom)], [])
+
+    crs_4269 = CRS.from_epsg(4269)
+    affine = Affine(1, 0, 0, 0, -1, 1)
+    grid = RasterGrid(crs_4269, affine, 1, 1, "d", "a")
+    req = RasterRequest(0, 0, 1, 1, grid, object(), 0)
+    valid = np.ones((1, 1), dtype=bool)
+    win = RasterWindow(
+        np.ones((1, 1), dtype="int8"),
+        np.ones((1, 1), dtype="float32"),
+        valid,
+        valid,
+        affine,
+        crs_4269,
+        "cells",
+        req,
+        np.array([[1]], dtype="uint8"),
+        255,
+        -9999,
+    )
+    bundle = (
+        QGISBundle().add_result(batch1).add_result(batch2).add_raster("nad83", RasterSubset(win, valid, "direction"))
+    )
+    folder = bundle.write(tmp_path / "out")
+
+    assert len(connections) == 1
+    assert connections[0].closed_explicitly is True
+    assert open_kwargs and open_kwargs[0].get("BIGTIFF") == "IF_SAFER"
+
+    with zipfile.ZipFile(folder / "watershed.qgz") as archive:
+        project = ET.fromstring(archive.read("watershed.qgs"))
+    groups = [g for g in project.findall("layer-tree-group/layer-tree-group") if g.attrib["name"] == "dup"]
+    assert len(groups) == 1
+    assert len(groups[0].findall("layer-tree-layer")) == 2
+    raster_layer = next(
+        layer for layer in project.findall("projectlayers/maplayer") if layer.findtext("layername") == "nad83"
+    )
+    assert raster_layer.findtext("srs/spatialrefsys/ellipsoidacronym") == "EPSG:7019"
