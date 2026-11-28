@@ -133,15 +133,13 @@ with pp.HydroFabric(dataset) as fabric:
     selection = pp.select_upstream_subbasins(fabric=fabric, target=outlet)
 
     # Use native flow rasters to resolve the watershed within those sub-basins.
-    refined = pp.refine(fabric=fabric, target=outlet, subbasins=selection)
-    watershed = pp.merge(subbasins=refined.subbasins)
+    refined = pp.refine(fabric=fabric, subbasins=selection)
 
     # Select the supplied rivers inside the refined watershed.
-    rivers = pp.select_rivers(fabric=fabric, target=watershed)
+    rivers = pp.select_rivers(fabric=fabric, target=refined)
 
     bundle = pp.QGISBundle()
     bundle.add_result(refined)
-    bundle.add_vector("watershed", watershed, crs="EPSG:4326")
     bundle.add_vector("rivers", rivers)
     bundle.add_vector("requested_point", point, crs="EPSG:4326")
     bundle.write("rhine-basel")
@@ -176,7 +174,7 @@ with pp.HydroFabric(dataset) as fabric:
         radius=100,
         refine=True,
     )
-    rivers = pp.select_rivers(fabric=fabric, target=result.subbasins)
+    rivers = pp.select_rivers(fabric=fabric, target=result)
 
     bundle = pp.QGISBundle()
     bundle.add_result(result)

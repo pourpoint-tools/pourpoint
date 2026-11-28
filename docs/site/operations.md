@@ -72,41 +72,53 @@ integrity and unexpected programming failures raise instead of becoming issues.
 Single-target `OperationError` exposes the same `code` and `reason`.
 
 `n_jobs=1` executes sequentially. Positive bounds and `-1` (available CPUs) use
-bounded threads with one independent fabric context per worker chunk. Contexts
-are reused across that chunk, never shared between worker threads. They use the
-same persistent cache and verify the same manifest snapshot. Parent `fabric.stats`
-includes worker requests, received payload bytes and cache-hit bytes. Concurrent
-first requests may duplicate acquisitions; this is not a single-flight cache.
-The number of simultaneous results and raster arrays grows with worker count.
+bounded threads pulling dynamically from a target queue, with one independent
+fabric context per worker. Contexts are reused across that worker's targets,
+never shared between worker threads. They use the same persistent cache and
+verify the same manifest snapshot. Parent `fabric.stats` includes worker
+requests, received payload bytes and cache-hit bytes. Concurrent first requests
+may duplicate acquisitions; this is not a single-flight cache. The number of
+simultaneous results and raster arrays grows with worker count.
 
-Explicit batch selection can feed `refine(fabric=fabric, subbasins=selection)`
-without regenerating identity. Existing failures remain failures.
+Explicit batch selection (`BatchResult[SelectionResult]`) or an unrefined
+delineation batch (`BatchResult[DelineationResult]`) can feed
+`refine(fabric=fabric, subbasins=...)` without regenerating identity. Single-call
+`refine`, `merge`, and `select_rivers` also compose directly with
+`SelectionResult`, unrefined `DelineationResult`, `GranularRefinement`, and
+`FootprintRefinement` (reusing `.geometry` when already materialized); `refine`
+rejects already-refined `DelineationResult` inputs. Existing failures remain
+failures.
 
 ## Rivers and snapping
 
-River level defaults independently to 1. `select_rivers` clips to the combined
-footprint, not each constituent unit. `include_downstream=True` follows supplied
-directed edges through splits and reconvergence. For a boundary inside a feature,
-its downstream suffix is retained. Source orientation or exactly matching supplied
-endpoint-node coordinates establish direction; ambiguous geometry raises
-`rivers.ambiguous_direction` rather than inventing flow. Source features,
-attributes, relationships and nodes survive clipping. Their endpoints are not
-reclassified as natural outlets.
+River level defaults independently to 1. `select_rivers` accepts polygonal
+geometries, sub-basins/contributions, collections, or selection/delineation/refinement
+results and clips to the combined footprint, not each constituent unit.
+`include_downstream=True` follows supplied directed edges through splits and
+reconvergence. For a boundary inside a feature, its downstream suffix is retained.
+Source orientation or exactly matching supplied endpoint-node coordinates establish
+direction; ambiguous geometry raises `rivers.ambiguous_direction` rather than
+inventing flow. Source features, attributes, relationships and nodes survive
+clipping. Their endpoints are not reclassified as natural outlets.
 
 `snap` minimizes WGS84 ground distance to supplied straight longitude/latitude
-stream segments. It uses 64 golden-section iterations per segment, plus endpoints
-and exact on-segment checks; this is a local stream-segment numerical method, not
-a global optimizer for globe-spanning linework. Split antimeridian crossings before
-calling. Radius is metres and `delineate` defaults it to 100 when snapping is
-requested. Snapping and raster outlet adjustment are separate operations.
+stream segments using conservative bounding-box pruning, dynamic bound
+tightening, bbox-gated on-segment checks, and 64 golden-section iterations per
+surviving candidate segment; this is a local stream-segment numerical method,
+not a global optimizer for globe-spanning linework. Split antimeridian crossings
+before calling. Radius is metres and `delineate` defaults it to 100 when
+snapping is requested, validating and indexing streams once across a batch.
+Snapping and raster outlet adjustment are separate operations.
 
 ## Portable output
 
 `QGISBundle` writes a new folder containing `watershed.qgz`, `vectors.gpkg` and
-GeoTIFFs. It refuses to overwrite an existing folder. Project references are relative;
-move the whole folder together. Raw vector geometries require an explicit `crs=`.
-`add_result` includes available outputs only, with per-target groups and issues.
-It does not merge or trace rivers implicitly.
+GeoTIFFs (with `BIGTIFF="IF_SAFER"`). It refuses to overwrite an existing
+folder. Project references are relative; move the whole folder together. Raw
+vector geometries require an explicit `crs=`. `add_result` includes available
+outputs only (including both `subbasins` and `watershed` for `GranularRefinement`
+and merged `DelineationResult`), deduplicating shared target group names and
+recording per-target issues. It does not merge or trace rivers implicitly.
 
 Each refined target receives one native-grid direction/accumulation pair, masked
 to the whole vector delineation. Direction values retain their source encoding,
@@ -118,15 +130,20 @@ workflow. Memory includes these arrays for every retained refinement result.
 
 GeoPackage features expose ordinary scalar attributes. Rich values, exact Arrow
 types/nulls and field/schema metadata remain lossless Arrow IPC stream blobs in
-`source_arrow`, keyed by layer and source row or relationship kind. Use
-`pyarrow.ipc.open_stream(payload).read_all()` to read them. `source_metadata` keeps
-attribute-column mappings and source declarations; colliding scalar names receive
-`source_` prefixes. `result_metadata` retains target provenance, WGS84 target WKB
-and JSON-encoded `UpstreamCoverage` diagnostics across `SelectionResult`,
-`DelineationResult`, `GranularRefinement` and `FootprintRefinement` exports. `river_connections` exposes directed supplied relations as
-ordinary rows, alongside lossless relationship and node tables. Target identity
-columns are separate from source IDs. Original source geometry remains in Arrow
-provenance even where a displayed feature is clipped.
+`source_arrow`, stored collectively per layer (`kind="features"` for vector layers
+and `kind="nodes"` for supplied river nodes, aligned with layer row order when
+backed by one schema or mapped per `fid`/node index in `source_metadata` when
+mixed schemas occur) alongside `"relationships"` and `"node_relationships"`. Use
+`pyarrow.ipc.open_stream(payload).read_all()` (reconcatenating ordered `part`
+segments when split across SQLite row limits) to read them. `source_metadata`
+keeps attribute-column mappings, stream-to-row mappings, and source
+declarations; colliding scalar names receive `source_` prefixes. `result_metadata`
+retains target provenance, WGS84 target WKB and JSON-encoded `UpstreamCoverage`
+diagnostics across `SelectionResult`, `DelineationResult`, `GranularRefinement`
+and `FootprintRefinement` exports. `river_connections` exposes directed supplied
+relations as ordinary rows, alongside lossless relationship and node tables.
+Target identity columns are separate from source IDs. Original source geometry
+remains in Arrow provenance even where a displayed feature is clipped.
 
 Exports retain GRIT's CC BY-NC 4.0 terms, attribution and source caveats. The code
 license does not grant different rights to data or exported results.

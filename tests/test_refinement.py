@@ -408,3 +408,84 @@ def test_granular_geometry_equivalence_and_delineate_avoids_double_union(
         assert [part.id for part in refined.subbasins] == [101, 102]
         assert refined.geometry.equals(merge(subbasins=refined.subbasins))
         assert refined.geometry.equals(box(1.0, 1.0, 2.2, 1.2))
+
+
+def test_composable_merge_and_refine_with_delineation_and_selection_results(tmp_path: Path) -> None:
+    from pourpoint import BatchResult, Target, delineate
+    from pourpoint.refinement import FootprintRefinement, SubbasinContribution
+    from pourpoint.results import DelineationResult, SelectionResult, UpstreamCoverage
+
+    root = make_spatial_bundle(tmp_path / "comp")
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["auxiliary"] = []
+    manifest_path.write_text(json.dumps(manifest))
+    dir_arr = np.full((10, 20), 8, dtype="uint8")
+    dir_arr[4, 10] = 0
+    acc_arr = np.ones((10, 20), dtype="int32")
+    acc_arr[4, 10] = 999
+    add_pair(
+        root,
+        encoding="grass",
+        direction=dir_arr,
+        accumulation=acc_arr,
+        transform=from_origin(0.0, 2.0, 0.2, 0.2),
+    )
+
+    with HydroFabric(root, cache=False) as fabric:
+        # SubbasinContribution equality/hashing/concise repr
+        tbl = pa.table({"id": [10], "geometry": [box(1.0, 1.0, 1.25, 1.25).wkb]})
+        c1 = SubbasinContribution(Subbasin(tbl, 0), box(1.0, 1.0, 1.2, 1.2))
+        c2 = SubbasinContribution(Subbasin(tbl, 0), box(1.0, 1.0, 1.2, 1.2))
+        assert c1 == c2
+        assert hash(c1) == hash(c2)
+        assert repr(c1) == "SubbasinContribution(id=10, geometry=Polygon)"
+
+        # DelineationResult(refine=False) composes directly into refine() using post-snap target and preserving coverage
+        cov = UpstreamCoverage(
+            "incomplete", declared_completeness="partial", cut_counts={10: 1}, unverified_unit_ids=()
+        )
+        unrefined = delineate(fabric=fabric, target=Point(2.1, 1.1), refine=False, merge=False)
+        refined_from_delin = refine(fabric=fabric, subbasins=unrefined)
+        assert refined_from_delin.coverage == unrefined.coverage
+        assert refined_from_delin.geometry.equals(box(2.0, 1.0, 2.2, 1.2))
+
+        # Manual unrefined DelineationResult uses post-snap target (Point(2.1, 1.1)), not original_target
+        s_tbl = pa.table({"id": [20], "geometry": [box(2.0, 1.0, 2.25, 1.25).wkb]})
+        manual_unrefined = DelineationResult(
+            [Subbasin(s_tbl, 0)], None, None, None, Point(9.9, 9.9), Point(2.1, 1.1), {}, cov
+        )
+        refined_manual = refine(fabric=fabric, subbasins=manual_unrefined)
+        assert refined_manual.coverage == cov
+
+        # SelectionResult with omitted target defaults to selection.target
+        sel = SelectionResult([Subbasin(s_tbl, 0)], cov, level=1, target=Point(2.1, 1.1))
+        refined_from_sel = refine(fabric=fabric, subbasins=sel)
+        assert refined_from_sel.coverage == cov
+        assert refined_from_sel.geometry.equals(box(2.0, 1.0, 2.2, 1.2))
+
+        # Already-refined DelineationResult is rejected cleanly (single & batch)
+        already_refined = delineate(fabric=fabric, target=Point(2.1, 1.1), refine=True, merge=True)
+        with pytest.raises(ValueError, match="already-refined"):
+            refine(fabric=fabric, subbasins=already_refined)
+        bad_batch = BatchResult([already_refined], [Target(0, "t0", Point(2.1, 1.1))], [])
+        with pytest.raises(ValueError, match="already-refined"):
+            refine(fabric=fabric, subbasins=bad_batch)
+
+        # Unrefined DelineationResult BatchResult composes cleanly
+        good_batch = BatchResult([manual_unrefined], [Target(0, "t0", Point(9.9, 9.9))], [])
+        batch_refined = refine(fabric=fabric, subbasins=good_batch)
+        assert batch_refined.results[0] is not None
+        assert batch_refined.results[0].coverage == cov
+
+        # merge() composes with all result types and nested sequences
+        assert merge(subbasins=sel).equals(box(2.0, 1.0, 2.25, 1.25))
+        assert merge(subbasins=unrefined).equals(merge(subbasins=unrefined.subbasins))
+        assert merge(subbasins=already_refined) is already_refined.geometry
+        assert merge(subbasins=refined_from_sel) is refined_from_sel.geometry
+        fp_res = FootprintRefinement(refined_from_sel.geometry, refined_from_sel.outlet_cell, refined_from_sel.rasters)
+        assert merge(subbasins=fp_res) is fp_res.geometry
+        merged_list = merge(subbasins=[sel, refined_from_sel])
+        assert len(merged_list) == 2
+        assert merged_list[0].equals(box(2.0, 1.0, 2.25, 1.25))
+        assert merged_list[1].equals(refined_from_sel.geometry)

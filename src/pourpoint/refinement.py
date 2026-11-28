@@ -26,7 +26,14 @@ from pourpoint.fabric import HydroFabric
 from pourpoint.features import Attributes, Subbasin
 from pourpoint.metadata import bounds
 from pourpoint.rasters import MissingRastersError, RasterCoverageError, RasterGrid, RasterWindow, _transformer
-from pourpoint.results import BatchResult, OperationError, SelectionResult, Target, UpstreamCoverage
+from pourpoint.results import (
+    BatchResult,
+    DelineationResult,
+    OperationError,
+    SelectionResult,
+    Target,
+    UpstreamCoverage,
+)
 
 
 def _unassessed_subbasins_coverage() -> UpstreamCoverage:
@@ -37,7 +44,7 @@ def _unassessed_footprint_coverage() -> UpstreamCoverage:
     return UpstreamCoverage("not_assessed", reason="coverage was not assessed for a manually supplied footprint")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class SubbasinContribution:
     """A contributing polygonal portion retaining its whole source unit.
 
@@ -51,6 +58,9 @@ class SubbasinContribution:
 
     source: Subbasin
     geometry: BaseGeometry
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(id={self.id}, geometry={self.geometry.geom_type})"
 
     @property
     def id(self) -> int:
@@ -189,6 +199,7 @@ class FootprintRefinement:
 
 
 type BasinPart = Subbasin | SubbasinContribution
+type MergeInput = SelectionResult | GranularRefinement | DelineationResult | FootprintRefinement | Sequence[BasinPart]
 
 
 def _polygonal(geometry: BaseGeometry) -> Polygon | MultiPolygon:
@@ -199,31 +210,33 @@ def _polygonal(geometry: BaseGeometry) -> Polygon | MultiPolygon:
 
 
 @overload
-def merge(*, subbasins: Sequence[BasinPart]) -> Polygon | MultiPolygon: ...
+def merge(*, subbasins: MergeInput) -> Polygon | MultiPolygon: ...
 
 
 @overload
-def merge(*, subbasins: Sequence[Sequence[BasinPart]]) -> list[Polygon | MultiPolygon]: ...
+def merge(*, subbasins: Sequence[MergeInput]) -> list[Polygon | MultiPolygon]: ...
 
 
-def merge(
-    *, subbasins: Sequence[BasinPart] | Sequence[Sequence[BasinPart]]
-) -> Polygon | MultiPolygon | list[Polygon | MultiPolygon]:
+def merge(*, subbasins: MergeInput | Sequence[MergeInput]) -> Polygon | MultiPolygon | list[Polygon | MultiPolygon]:
     """Merge sub-basin geometries without creating a new source feature.
 
     Parameters
     ----------
     subbasins
-        Whole units or contributions forming one footprint, or nested groups
-        representing independent footprints. Geometries use EPSG:4326.
+        A `SelectionResult`, `DelineationResult`, `GranularRefinement`,
+        `FootprintRefinement`, whole units or contributions forming one
+        footprint, or a sequence of those groups representing independent
+        footprints. Geometries use EPSG:4326. When a result already carries its
+        merged ``.geometry``, it is returned directly without recomputation.
 
     Returns
     -------
     Polygon or MultiPolygon or list
-        Polygonal union for one group; an ordered list of unions for nested
-        groups. An empty outer input returns an empty Polygon, not a list.
-        Empty inner groups produce empty Polygons. No source attributes are
-        aggregated, and no source access or geometry repair is performed.
+        Polygonal union for one group or result; an ordered list of unions for
+        a sequence of groups. An empty outer sequence returns an empty Polygon,
+        not a list. Empty inner groups produce empty Polygons. No source
+        attributes are aggregated, and no source access or geometry repair is
+        performed.
 
     Notes
     -----
@@ -235,12 +248,20 @@ def merge(
     retained caller inputs, outputs or total process memory. Independent
     processes have independent bounds.
     """
+    if isinstance(subbasins, (FootprintRefinement, GranularRefinement)):
+        return subbasins.geometry
+    if isinstance(subbasins, DelineationResult):
+        if subbasins.geometry is not None:
+            return subbasins.geometry
+        return _polygonal(union_subbasins(subbasins.subbasins)) if subbasins.subbasins else Polygon()
+    if isinstance(subbasins, SelectionResult):
+        return _polygonal(union_subbasins(subbasins.subbasins)) if subbasins.subbasins else Polygon()
     if not subbasins:
         return Polygon()
     if isinstance(subbasins[0], (Subbasin, SubbasinContribution)):
         parts = cast(Sequence[BasinPart], subbasins)
         return _polygonal(union_subbasins(parts))
-    groups = cast(Sequence[Sequence[BasinPart]], subbasins)
+    groups = cast(Sequence[MergeInput], subbasins)
     return [merge(subbasins=group) for group in groups]
 
 
@@ -283,15 +304,24 @@ def _trace(window: RasterWindow, mask: npt.NDArray[np.bool_], row: int, col: int
     return np.ascontiguousarray(visited.reshape(height + 2, stride)[1:-1, 1:-1])
 
 
+def _is_refined_delineation(result: DelineationResult) -> bool:
+    return (
+        result.outlet_cell is not None
+        or result.rasters is not None
+        or any(isinstance(part, SubbasinContribution) for part in result.subbasins)
+    )
+
+
 @overload
 def _refine(
     *,
     fabric: HydroFabric,
-    target: Point,
+    target: BaseGeometry,
     subbasins: Sequence[Subbasin],
     footprint: None = None,
     window_size: int = 3,
     coverage: UpstreamCoverage | None = None,
+    combined: Polygon | MultiPolygon | None = None,
 ) -> GranularRefinement: ...
 
 
@@ -299,22 +329,24 @@ def _refine(
 def _refine(
     *,
     fabric: HydroFabric,
-    target: Point,
+    target: BaseGeometry,
     footprint: BaseGeometry,
     subbasins: None = None,
     window_size: int = 3,
     coverage: UpstreamCoverage | None = None,
+    combined: Polygon | MultiPolygon | None = None,
 ) -> FootprintRefinement: ...
 
 
 def _refine(
     *,
     fabric: HydroFabric,
-    target: Point,
+    target: BaseGeometry,
     subbasins: Sequence[Subbasin] | None = None,
     footprint: BaseGeometry | None = None,
     window_size: int = 3,
     coverage: UpstreamCoverage | None = None,
+    combined: Polygon | MultiPolygon | None = None,
 ) -> GranularRefinement | FootprintRefinement:
     """Select the largest valid local accumulation, ties in source row/column order.
 
@@ -327,13 +359,16 @@ def _refine(
         raise ValueError("provide exactly one of subbasins or footprint")
     if not isinstance(target, Point) or target.is_empty or not all(isfinite(v) for v in target.coords[0]):
         raise OperationError("refinement.point_required", "refinement requires a nonempty finite point target")
-    combined = merge(subbasins=subbasins) if subbasins is not None else footprint
-    if not isinstance(combined, (Polygon, MultiPolygon)) or combined.is_empty:
+    if subbasins is not None:
+        effective = combined if combined is not None and subbasins else merge(subbasins=subbasins)
+    else:
+        effective = footprint
+    if not isinstance(effective, (Polygon, MultiPolygon)) or effective.is_empty:
         raise OperationError("refinement.empty_mask", "refinement requires a nonempty polygon mask")
-    if not combined.covers(target):
+    if not effective.covers(target):
         raise OperationError("refinement.outside_mask", "target lies outside the vector mask")
     try:
-        region = bounds(combined.bounds)
+        region = bounds(effective.bounds)
     except ValueError as error:
         raise OperationError("refinement.no_coverage", str(error)) from error
     if not (-180 <= region[0] < region[2] <= 180 and -90 <= region[1] < region[3] <= 90):
@@ -346,7 +381,7 @@ def _refine(
     except RasterCoverageError as error:
         raise OperationError("refinement.no_coverage", str(error)) from error
     to_native = _transformer("EPSG:4326", window.crs, from_crs=Transformer.from_crs)
-    native_mask = shapely.transform(combined, to_native.transform, interleaved=False)
+    native_mask = shapely.transform(effective, to_native.transform, interleaved=False)
     mask = geometry_mask([native_mask], out_shape=window.direction.shape, transform=window.transform, invert=True)
     native_point = to_native.transform(target.x, target.y)
     x, y = ~window.transform @ native_point
@@ -373,7 +408,7 @@ def _refine(
     native_geometry = shapely.union_all(polygons)
     to_wgs84 = _transformer(window.crs, "EPSG:4326", from_crs=Transformer.from_crs)
     geometry = _polygonal(
-        shapely.transform(native_geometry, to_wgs84.transform, interleaved=False).intersection(combined)
+        shapely.transform(native_geometry, to_wgs84.transform, interleaved=False).intersection(effective)
     )
     cell = OutletCell(request.grid, row + request.row, col + request.col)
     rasters = RefinementRasters(RasterSubset(window, mask, "direction"), RasterSubset(window, mask, "accumulation"))
@@ -408,7 +443,7 @@ def _refine(
 def refine(
     *,
     fabric: HydroFabric,
-    subbasins: BatchResult[SelectionResult],
+    subbasins: BatchResult[SelectionResult] | BatchResult[DelineationResult],
     target: None = None,
     footprint: None = None,
     window_size: int = 3,
@@ -420,8 +455,20 @@ def refine(
 def refine(
     *,
     fabric: HydroFabric,
+    subbasins: SelectionResult | DelineationResult,
+    target: BaseGeometry | None = None,
+    footprint: None = None,
+    window_size: int = 3,
+    n_jobs: int = 1,
+) -> GranularRefinement: ...
+
+
+@overload
+def refine(
+    *,
+    fabric: HydroFabric,
     target: Point,
-    subbasins: SelectionResult | Sequence[Subbasin],
+    subbasins: Sequence[Subbasin],
     footprint: None = None,
     window_size: int = 3,
     n_jobs: int = 1,
@@ -443,8 +490,13 @@ def refine(
 def refine(
     *,
     fabric: HydroFabric,
-    target: Point | None = None,
-    subbasins: SelectionResult | Sequence[Subbasin] | BatchResult[SelectionResult] | None = None,
+    target: BaseGeometry | None = None,
+    subbasins: SelectionResult
+    | DelineationResult
+    | Sequence[Subbasin]
+    | BatchResult[SelectionResult]
+    | BatchResult[DelineationResult]
+    | None = None,
     footprint: BaseGeometry | None = None,
     window_size: int = 3,
     n_jobs: int = 1,
@@ -456,16 +508,19 @@ def refine(
     fabric
         Open fabric supplying the native direction/accumulation pair.
     target
-        Nonempty point in EPSG:4326 covered by the mask. Omit for a selection
-        batch, which carries its own target geometries.
+        Nonempty point in EPSG:4326 covered by the mask. Optional when
+        ``subbasins`` is a `SelectionResult` or unrefined `DelineationResult`,
+        defaulting to the result's post-snap ``.target``. Omit for a batch,
+        which carries per-target geometries.
     subbasins
-        A `SelectionResult`, whole source units forming one mask, or a
-        selection `BatchResult`. Mutually exclusive with ``footprint``.
-        Passing a `SelectionResult` or selection batch preserves its
+        A `SelectionResult`, an unrefined `DelineationResult`, whole source
+        units forming one mask, or a batch of selection or unrefined delineation
+        results. Mutually exclusive with ``footprint``. Passing a
+        `SelectionResult`, unrefined `DelineationResult`, or batch preserves its
         source-network `UpstreamCoverage` diagnostics on the refined output;
         manually supplied sub-basins receive ``status="not_assessed"``. Batch
         identity, order and prior issues are preserved; failed slots are not
-        retried.
+        retried. Already-refined `DelineationResult` inputs are rejected.
     footprint
         Nonempty Polygon or MultiPolygon in EPSG:4326, used as one mask
         (``coverage.status == "not_assessed"``). Supply exactly one mask form.
@@ -501,11 +556,12 @@ def refine(
         ``refinement.no_outlet`` when the local search has no valid masked cell.
         Batches retain these failures as issues with None slots.
     ValueError
-        Invalid window/worker count or mutually incompatible mask arguments.
-        Integrity and unexpected errors also propagate, including in batches.
+        Invalid window/worker count, mutually incompatible mask arguments, or an
+        already-refined `DelineationResult`. Integrity and unexpected errors
+        also propagate, including in batches.
     TypeError
-        A single call omits ``target``, or a batch slot is not a
-        `SelectionResult`.
+        A raw sub-basin/footprint call omits ``target``, or a batch slot is not
+        a `SelectionResult` or `DelineationResult`.
 
     Notes
     -----
@@ -530,21 +586,37 @@ def refine(
     if isinstance(subbasins, BatchResult):
         if target is not None or footprint is not None:
             raise ValueError("selection batches carry their own targets and footprints")
-        if any(slot is not None and not isinstance(slot, SelectionResult) for slot in subbasins.results):
-            raise TypeError("batch refinement requires a BatchResult of SelectionResult")
+        for slot in subbasins.results:
+            if slot is None:
+                continue
+            if isinstance(slot, DelineationResult):
+                if _is_refined_delineation(slot):
+                    raise ValueError("cannot refine an already-refined DelineationResult")
+            elif not isinstance(slot, SelectionResult):
+                raise TypeError("batch refinement requires a BatchResult of SelectionResult or DelineationResult")
 
         def one(reader: HydroFabric, item: Target) -> GranularRefinement | None:
-            selection = subbasins.results[item.index]
-            if selection is None:
+            slot = subbasins.results[item.index]
+            if slot is None:
                 return None
-            if not isinstance(item.geometry, Point):
+            if isinstance(slot, SelectionResult):
+                slot_target = slot.target
+                slot_subbasins = slot.subbasins
+                slot_combined = None
+            else:
+                assert isinstance(slot, DelineationResult)
+                slot_target = slot.target
+                slot_subbasins = cast(Sequence[Subbasin], slot.subbasins)
+                slot_combined = slot.geometry if slot.subbasins else None
+            if not isinstance(slot_target, Point):
                 raise OperationError("refinement.point_required", "refinement requires a point target")
             return _refine(
                 fabric=reader,
-                subbasins=selection.subbasins,
-                target=item.geometry,
+                subbasins=slot_subbasins,
+                target=slot_target,
                 window_size=window_size,
-                coverage=selection.coverage,
+                coverage=slot.coverage,
+                combined=slot_combined,
             )
 
         result = execute(fabric, subbasins.targets, one, n_jobs)
@@ -553,19 +625,32 @@ def refine(
             subbasins.targets,
             sorted([*subbasins.issues, *result.issues], key=lambda issue: issue.index),
         )
-    if target is None:
-        raise TypeError("target is required for single refinement")
     if subbasins is not None:
         if footprint is not None:
             raise ValueError("provide exactly one of subbasins or footprint")
         if isinstance(subbasins, SelectionResult):
+            effective_target = subbasins.target if target is None else target
             return _refine(
                 fabric=fabric,
-                target=target,
+                target=effective_target,
                 subbasins=subbasins.subbasins,
                 window_size=window_size,
                 coverage=subbasins.coverage,
             )
+        if isinstance(subbasins, DelineationResult):
+            if _is_refined_delineation(subbasins):
+                raise ValueError("cannot refine an already-refined DelineationResult")
+            effective_target = subbasins.target if target is None else target
+            return _refine(
+                fabric=fabric,
+                target=effective_target,
+                subbasins=cast(Sequence[Subbasin], subbasins.subbasins),
+                window_size=window_size,
+                coverage=subbasins.coverage,
+                combined=subbasins.geometry if subbasins.subbasins else None,
+            )
+        if target is None:
+            raise TypeError("target is required for single refinement")
         return _refine(
             fabric=fabric,
             target=target,
@@ -573,6 +658,8 @@ def refine(
             window_size=window_size,
             coverage=_unassessed_subbasins_coverage(),
         )
+    if target is None:
+        raise TypeError("target is required for single refinement")
     if footprint is None:
         raise ValueError("provide exactly one of subbasins or footprint")
     return _refine(

@@ -238,13 +238,14 @@ def test_export_does_not_repeat_unselected_nested_dictionary_values(tmp_path: Pa
     table = pa.table({"id": [1, 2], "geometry": [box(0, 0, 1, 1).wkb] * 2, "nested": nested})
     folder = QGISBundle().add_vector("selected", [Subbasin(table, 0)] * 3).write(tmp_path / "bundle")
     with sqlite3.connect(folder / "vectors.gpkg") as db:
-        payloads = db.execute("SELECT payload FROM source_arrow").fetchall()
-    assert len(payloads) == 3
-    for (payload,) in payloads:
-        assert len(payload) < 2000
-        restored = pa.ipc.open_stream(payload).read_all()
-        assert restored.schema.equals(table.schema, check_metadata=True)
-        assert restored.to_pylist() == [{"id": 1, "geometry": box(0, 0, 1, 1).wkb, "nested": ["a"]}]
+        rows = db.execute("SELECT kind, payload FROM source_arrow").fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "features"
+    payload = rows[0][1]
+    assert len(payload) < 2000
+    restored = pa.ipc.open_stream(payload).read_all()
+    assert restored.schema.equals(table.schema, check_metadata=True)
+    assert restored.to_pylist() == [{"id": 1, "geometry": box(0, 0, 1, 1).wkb, "nested": ["a"]}] * 3
 
 
 def test_segmented_network_preserves_nodes_relationships_and_declarations(
@@ -285,13 +286,16 @@ def test_segmented_network_preserves_nodes_relationships_and_declarations(
                 )
             )
             streams.append(pa.ipc.open_stream(payload).read_all())
+        kinds = [
+            row[0]
+            for row in db.execute("SELECT DISTINCT kind, stream_id FROM source_arrow ORDER BY stream_id").fetchall()
+        ]
+        assert kinds == ["features", "relationships", "node_relationships", "nodes"]
         assert db.execute("SELECT source_id, target_id FROM river_connections ORDER BY target_id").fetchall() == [
             (1, i) for i in range(2, 1002)
         ]
         assert declarations in [json.loads(row[0]) for row in db.execute("SELECT metadata FROM source_metadata")]
-    for actual, expected in zip(
-        streams, [river, relationships, node_relationships, nodes.slice(0, 1), nodes.slice(1, 1)], strict=True
-    ):
+    for actual, expected in zip(streams, [river, relationships, node_relationships, nodes], strict=True):
         assert actual.equals(expected, check_metadata=True)
 
 
@@ -482,3 +486,110 @@ def test_raster_export_avoids_float64_promotion_and_preserves_nodata(
         vals = a_tif.read(1)
         assert np.isnan(vals[0, 1])
         np.testing.assert_allclose(vals[mask], [1.5, 3.5, 4.5])
+
+
+def test_qgis_granular_refinement_exports_watershed_and_collective_source_arrow_features(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    import numpy as np
+    import shapely
+    from conftest import add_pair
+    from rasterio.transform import from_origin
+    from shapely.geometry import LineString, Point
+    from spatial_fixture import make_spatial_bundle
+
+    from pourpoint import HydroFabric, refine
+    from pourpoint.refinement import SubbasinContribution
+    from pourpoint.rivers import ClippedRiver
+
+    # 1. GranularRefinement add_result exports both "subbasins" and "watershed"
+    source = make_spatial_bundle(tmp_path / "gran_fabric")
+    manifest_path = source / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["auxiliary"] = []
+    manifest_path.write_text(json.dumps(manifest))
+    add_pair(
+        source,
+        direction=np.array([[0]], dtype="uint8"),
+        accumulation=np.array([[1]], dtype="int32"),
+        transform=from_origin(0, 1, 1, 1),
+    )
+    footprint = box(0, 0, 1, 1)
+    with HydroFabric(source) as fabric:
+        sub_tbl = pa.table({"id": [7], "geometry": [footprint.wkb], "score": [42]})
+        gran = refine(fabric=fabric, subbasins=[Subbasin(sub_tbl, 0)], target=Point(0.5, 0.5))
+    folder = QGISBundle().add_result(gran).write(tmp_path / "gran_out")
+    with zipfile.ZipFile(folder / "watershed.qgz") as archive:
+        project = ET.fromstring(archive.read("watershed.qgs"))
+    layer_names = [layer.findtext("layername") for layer in project.findall("projectlayers/maplayer")]
+    assert "subbasins" in layer_names
+    assert "watershed" in layer_names
+
+    # 2. Mixed schemas in one layer produce distinct streams with explicit fid mapping in source_metadata
+    t_a = pa.table({"id": [1, 2], "geometry": [box(0, 0, 1, 1).wkb, box(1, 0, 2, 1).wkb], "a": [10, 20]})
+    t_b = pa.table({"id": [3], "geometry": [box(2, 0, 3, 1).wkb], "b": ["extra"]})
+    mixed_folder = (
+        QGISBundle()
+        .add_vector("mixed", [Subbasin(t_a, 0), Subbasin(t_b, 0), Subbasin(t_a, 1)])
+        .write(tmp_path / "mixed")
+    )
+    with sqlite3.connect(mixed_folder / "vectors.gpkg") as db:
+        rows = db.execute("SELECT fid, source_id, a, b FROM layer_0 ORDER BY fid").fetchall()
+        assert rows == [(1, 1, 10, None), (2, 3, None, "extra"), (3, 2, 20, None)]
+        meta_json = json.loads(
+            db.execute("SELECT metadata FROM source_metadata WHERE layer_name = 'layer_0'").fetchone()[0]
+        )
+        assert meta_json["attribute_columns"] == {"id": "id", "a": "a", "b": "b"}
+        fstreams = meta_json["feature_streams"]
+        assert len(fstreams) == 2
+        assert fstreams[0]["fids"] == [1, 3]
+        assert fstreams[1]["fids"] == [2]
+        s0 = pa.ipc.open_stream(
+            db.execute("SELECT payload FROM source_arrow WHERE stream_id = ?", (fstreams[0]["stream_id"],)).fetchone()[
+                0
+            ]
+        ).read_all()
+        s1 = pa.ipc.open_stream(
+            db.execute("SELECT payload FROM source_arrow WHERE stream_id = ?", (fstreams[1]["stream_id"],)).fetchone()[
+                0
+            ]
+        ).read_all()
+        assert s0.equals(t_a, check_metadata=True)
+        assert s1.equals(t_b, check_metadata=True)
+
+    # 3. Unchanged Feature WKB bypasses shapely.from_wkb while preserving validation and ClippedRiver clipped geometry
+    orig_from_wkb = shapely.from_wkb
+
+    def forbid_from_wkb(*args: object, **kwargs: object) -> object:
+        raise AssertionError("unchanged Feature should use validated WKB fast path without shapely.from_wkb")
+
+    monkeypatch.setattr(shapely, "from_wkb", forbid_from_wkb)
+    try:
+        t_valid = pa.table({"id": [5], "geometry": [shapely.to_wkb(box(0, 0, 1, 1), byte_order=1)]})
+        fast_dir = QGISBundle().add_vector("fast", [Subbasin(t_valid, 0)]).write(tmp_path / "fast")
+        assert (fast_dir / "vectors.gpkg").is_file()
+    finally:
+        monkeypatch.setattr(shapely, "from_wkb", orig_from_wkb)
+
+    # Wrong-type or malformed WKB still raises ValueError even via add_vector
+    bad_tbl = pa.table({"id": [5], "geometry": [Point(0, 0).wkb]})
+    with pytest.raises(ValueError, match="invalid Subbasin geometry"):
+        QGISBundle().add_vector("bad", [Subbasin(bad_tbl, 0)])
+
+    # SubbasinContribution and ClippedRiver still export their clipped geometry rather than whole source WKB
+    contrib = SubbasinContribution(Subbasin(t_a, 0), box(0, 0, 0.5, 0.5))
+    clipped_river = ClippedRiver(
+        pa.table({"id": [11], "geometry": [LineString([(0, 0), (10, 0)]).wkb]}),
+        0,
+        LineString([(0, 0), (2, 0)]),
+    )
+    clip_dir = QGISBundle().add_vector("c_sub", [contrib]).add_vector("c_riv", [clipped_river]).write(tmp_path / "clip")
+    with sqlite3.connect(clip_dir / "vectors.gpkg") as db:
+        assert shapely.from_wkb(db.execute("SELECT geometry FROM layer_0").fetchone()[0][8:]).equals(
+            box(0, 0, 0.5, 0.5)
+        )
+        assert shapely.from_wkb(db.execute("SELECT geometry FROM layer_1").fetchone()[0][8:]).equals(
+            LineString([(0, 0), (2, 0)])
+        )

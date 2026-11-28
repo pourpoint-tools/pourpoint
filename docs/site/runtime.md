@@ -52,17 +52,22 @@ service. Materialized tables and features survive closure. Source-dependent rast
 reads must finish inside the context. Closing releases readers/connections and
 leaves persistent cache content intact.
 
-Caching defaults to `cache=True`. `cache_dir` selects the location; otherwise it is
-`~/Library/Caches/pourpoint` on macOS, `%LOCALAPPDATA%/pourpoint` on Windows, and
-`$XDG_CACHE_HOME/pourpoint` (or `~/.cache/pourpoint`) elsewhere. `cache=False`
-disables disk caching, not bounded in-memory buffering.
+Caching defaults to `cache="auto"`: remote sources (`http`, `https`, `s3`)
+enable the persistent disk cache by default, while local filesystem bundles leave
+disk caching disabled unless `cache=True` is passed (`offline=True` on a local
+bundle requires explicit `cache=True`). `cache_dir` selects the location;
+otherwise it is `~/Library/Caches/pourpoint` on macOS,
+`%LOCALAPPDATA%/pourpoint` on Windows, and `$XDG_CACHE_HOME/pourpoint` (or
+`~/.cache/pourpoint`) elsewhere. `cache=False` disables disk caching everywhere
+(including external raster URLs), not bounded in-memory buffering.
 
-One SQLite cache accumulates original byte ranges by source, artifact fingerprint
-and address. Atomic writes retain only acquired coverage and deduplicate overlap.
-No private feature format, index rebuild, per-watershed bundle or automatic disk
-eviction is involved. Cached manifest bytes pin the first snapshot in that cache.
-To deliberately adopt a newer publication, choose a new cache directory or remove
-the old cache when no readers are using it.
+One SQLite cache (using WAL mode) accumulates original byte ranges by source,
+artifact fingerprint and address. Atomic writes retain only acquired coverage
+and deduplicate overlap. No private feature format, index rebuild,
+per-watershed bundle or automatic disk eviction is involved. Cached manifest
+bytes pin the first snapshot in that cache. To deliberately adopt a newer
+publication, choose a new cache directory or remove the old cache when no
+readers are using it.
 
 
 `offline=True` prohibits network acquisition, including HEAD. Completed workloads
@@ -89,12 +94,13 @@ relationship declarations bind every involved domain. Directories are fully hash
 feature/IPC/TIFF bounded head/tail fingerprints are selective checks, **not** full
 artifact verification. Immutable producer publication remains required.
 
-Cached Parquet reads prefetch projected column chunks with four concurrent
-checked transfers, split at 8 MiB each, without coalescing gaps. Scheduling is per
-row group, not worldwide. These are initial engineering constants, not proven
-optima or a 32 MiB RSS guarantee: SQLite copies, decoding and returned data have
-separate memory costs. The existing obstore transport was retained after examining
-fsspec async scheduling, avoiding a second authentication/integrity path.
+Cached Parquet reads prefetch uncached projected column ranges concurrently with
+a shared executor and checked transfers over the existing obstore transport.
+Remote range reads use an explicit snapshot without re-fetching already-cached
+ranges. Scheduling is per row group rather than worldwide. SQLite copies,
+decoding and returned data have separate memory costs. The existing obstore
+transport was retained after examining fsspec async scheduling, avoiding a
+second authentication/integrity path.
 
 `stats` reports source requests (including HEAD), response payload bytes and disk
 cache-hit bytes, shared with external rasters. It is not wire traffic.
