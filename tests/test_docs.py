@@ -1,5 +1,6 @@
 """Shared documentation assembly excludes non-reader repository material."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -70,19 +71,56 @@ def test_readme_documentation_links_stay_in_the_built_site(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
-    "event,gate,expected",
+    "event,gate,prerelease,expected",
     [
-        ("release", "true", True),
-        ("release", "", False),
-        ("release", "false", False),
-        ("push", "true", False),
-        ("pull_request", "true", False),
+        ("release", "true", False, True),
+        ("release", "true", True, False),
+        ("release", "", False, False),
+        ("release", "false", False, False),
+        ("push", "true", False, False),
+        ("pull_request", "true", False, False),
     ],
 )
-def test_publication_requires_release_and_explicit_gate(event: str, gate: str, expected: bool) -> None:
+def test_publication_requires_release_and_explicit_gate(
+    event: str, gate: str, prerelease: bool, expected: bool
+) -> None:
     from scripts.publish_docs import publication_enabled
 
-    assert publication_enabled(event, gate) is expected
+    assert publication_enabled(event, gate, prerelease=prerelease) is expected
+
+
+@pytest.mark.parametrize(
+    "event,prerelease,expected",
+    [
+        ("release", False, True),
+        ("release", True, False),
+        ("push", False, False),
+        ("pull_request", False, False),
+    ],
+)
+def test_retention_requires_non_prerelease(event: str, prerelease: bool, expected: bool) -> None:
+    from scripts.publish_docs import retention_enabled
+
+    assert retention_enabled(event, prerelease=prerelease) is expected
+
+
+def test_is_prerelease_from_flag_and_event_payload(tmp_path: Path) -> None:
+    from scripts.publish_docs import is_prerelease
+
+    assert is_prerelease("true") is True
+    assert is_prerelease("false") is False
+    assert is_prerelease("") is False
+    with pytest.raises(ValueError, match="GITHUB_RELEASE_PRERELEASE"):
+        is_prerelease("maybe")
+
+    event_true = tmp_path / "event_true.json"
+    event_true.write_text(json.dumps({"release": {"prerelease": True}}))
+    event_false = tmp_path / "event_false.json"
+    event_false.write_text(json.dumps({"release": {"prerelease": False}}))
+
+    assert is_prerelease("", event_true) is True
+    assert is_prerelease("", event_false) is False
+    assert is_prerelease("false", event_true) is False
 
 
 def test_private_release_never_pushes_pages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,9 +144,94 @@ def test_private_release_never_pushes_pages(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.setattr("sys.argv", ["publish_docs", "--repository", str(repository)])
     monkeypatch.setenv("GITHUB_EVENT_NAME", "release")
     monkeypatch.delenv("DOCS_PUBLICATION_ENABLED", raising=False)
+    monkeypatch.delenv("GITHUB_RELEASE_PRERELEASE", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
     publish_docs.main()
     pushes = [command[-2:] for command in commands if "push" in command]
     assert pushes == [["origin", "HEAD:main"]]
     assert (repository / "index.html").read_text() == "reader docs"
     assert (repository / ".nojekyll").is_file()
     assert not (repository / "old.html").exists()
+
+
+@pytest.mark.parametrize("via_event_file", [False, True])
+def test_prerelease_never_modifies_docs_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, via_event_file: bool
+) -> None:
+    from scripts import publish_docs
+
+    output = tmp_path / ".docs-build/site"
+    output.mkdir(parents=True)
+    (output / "index.html").write_text("reader docs")
+    repository = tmp_path / "generated"
+    repository.mkdir()
+    (repository / ".git").mkdir()
+    (repository / "old.html").write_text("stale")
+    commands: list[list[str]] = []
+
+    def record(command: list[str], *, check: bool) -> None:
+        assert check
+        commands.append(command)
+
+    monkeypatch.setattr(publish_docs, "ROOT", tmp_path)
+    monkeypatch.setattr(publish_docs.subprocess, "run", record)
+    monkeypatch.setattr("sys.argv", ["publish_docs", "--repository", str(repository)])
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "release")
+    monkeypatch.setenv("DOCS_PUBLICATION_ENABLED", "true")
+    if via_event_file:
+        event_file = tmp_path / "event.json"
+        event_file.write_text(json.dumps({"release": {"prerelease": True}}))
+        monkeypatch.delenv("GITHUB_RELEASE_PRERELEASE", raising=False)
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
+    else:
+        monkeypatch.setenv("GITHUB_RELEASE_PRERELEASE", "true")
+        monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    publish_docs.main()
+    assert commands == []
+    assert (repository / "old.html").read_text() == "stale"
+    assert not (repository / "index.html").exists()
+
+
+def test_stable_release_with_gate_pushes_main_and_pages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from scripts import publish_docs
+
+    output = tmp_path / ".docs-build/site"
+    output.mkdir(parents=True)
+    (output / "index.html").write_text("reader docs")
+    repository = tmp_path / "generated"
+    repository.mkdir()
+    (repository / ".git").mkdir()
+    (repository / "old.html").write_text("stale")
+    commands: list[list[str]] = []
+
+    def record(command: list[str], *, check: bool) -> None:
+        assert check
+        commands.append(command)
+
+    monkeypatch.setattr(publish_docs, "ROOT", tmp_path)
+    monkeypatch.setattr(publish_docs.subprocess, "run", record)
+    monkeypatch.setattr("sys.argv", ["publish_docs", "--repository", str(repository)])
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "release")
+    monkeypatch.setenv("DOCS_PUBLICATION_ENABLED", "true")
+    monkeypatch.setenv("GITHUB_RELEASE_PRERELEASE", "false")
+    publish_docs.main()
+    pushes = [command[-2:] for command in commands if "push" in command]
+    assert pushes == [["origin", "HEAD:main"], ["origin", "HEAD:gh-pages"]]
+    assert (repository / "index.html").read_text() == "reader docs"
+    assert not (repository / "old.html").exists()
+
+
+def test_publish_pypi_workflow_protects_docs_on_prerelease() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/publish-pypi.yml").read_text()
+    assert "scripts/build_docs.py" in workflow
+    assert "actions/upload-artifact@v4" in workflow
+
+    checkout_block = workflow.split("actions/upload-artifact@v4", 1)[1].split(
+        "Retain release output and publish when enabled", 1
+    )[0]
+    assert "pourpoint-tools/pourpoint-tools.github.io" in checkout_block
+    assert "if: ${{ !github.event.release.prerelease }}" in checkout_block
+
+    publish_block = workflow.split("Retain release output and publish when enabled", 1)[1]
+    assert "if: ${{ !github.event.release.prerelease }}" in publish_block
+    assert "GITHUB_RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}" in publish_block

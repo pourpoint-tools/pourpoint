@@ -69,12 +69,15 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
       - uses: actions/checkout@v4
+        if: ${{ !github.event.release.prerelease }}
         with:
           repository: pourpoint-tools/pourpoint-tools.github.io
           ref: main
           path: .worktrees/generated-site
           ssh-key: ${{ secrets.DOCS_SITE_WRITE_KEY }}
       - name: Retain release output and publish when enabled
+        if: ${{ !github.event.release.prerelease }}
         env:
           DOCS_PUBLICATION_ENABLED: ${{ vars.DOCS_PUBLICATION_ENABLED }}
+          GITHUB_RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: uv run --frozen python scripts/publish_docs.py --repository .worktrees/generated-site
