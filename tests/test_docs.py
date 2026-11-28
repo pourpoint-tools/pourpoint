@@ -226,9 +226,12 @@ def test_publish_pypi_workflow_protects_docs_on_prerelease() -> None:
     assert "scripts/build_docs.py" in workflow
     assert "actions/upload-artifact@v4" in workflow
 
-    generated_checkout = workflow.split("pourpoint-tools/pourpoint-tools.github.io")[0].splitlines()[-4:]
-    assert any("if: ${{ !github.event.release.prerelease }}" in line for line in generated_checkout)
+    checkout_block = workflow.split("actions/upload-artifact@v4", 1)[1].split(
+        "Retain release output and publish when enabled", 1
+    )[0]
+    assert "pourpoint-tools/pourpoint-tools.github.io" in checkout_block
+    assert "if: ${{ !github.event.release.prerelease }}" in checkout_block
 
-    publish_block = workflow.split("Retain release output and publish when enabled")[1]
+    publish_block = workflow.split("Retain release output and publish when enabled", 1)[1]
     assert "if: ${{ !github.event.release.prerelease }}" in publish_block
     assert "GITHUB_RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}" in publish_block

@@ -74,9 +74,10 @@ not the finest level. This example selects whole upstream sub-basins.
 Snapping needs explicit snap_onto geometry; its radius is in metres.
 refine=True needs covering direction and accumulation rasters and never
 silently falls back to a coarse result. GranularRefinement and
-FootprintRefinement both expose .geometry; refine, merge, and select_rivers
-accept SelectionResult, unrefined DelineationResult, or refinement results
-directly, and QGISBundle.add_result exports both subbasins and watershed.
+FootprintRefinement both expose .geometry; refine accepts SelectionResult or
+unrefined DelineationResult, merge and select_rivers also accept refinement
+results directly, and QGISBundle.add_result exports available outputs (both
+subbasins and watershed for GranularRefinement and merged DelineationResult).
 Consult the README's Rhine example for snapping, refinement and QGIS export;
 do not run it just for onboarding.
 
