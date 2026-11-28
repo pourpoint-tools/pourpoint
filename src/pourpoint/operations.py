@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 import pyarrow as pa
-from shapely.geometry import Point
+from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 
 from pourpoint._batch import Targets, execute, identify, workers
@@ -461,6 +461,7 @@ def delineate(
         outlet = None
         rasters = None
         parts: list[Subbasin | SubbasinContribution] = list(selection.subbasins)
+        refined_geometry: Polygon | MultiPolygon | None = None
         if refine:
             from pourpoint.refinement import refine as refine_point
 
@@ -468,12 +469,16 @@ def delineate(
                 raise OperationError("refinement.point_required", "refinement requires a point target")
             refined = refine_point(fabric=reader, subbasins=selection, target=adjusted, window_size=window_size)
             parts = list(refined.subbasins)
+            refined_geometry = refined.geometry
             outlet, rasters = refined.outlet_cell, refined.rasters
         merged = None
         if merge:
-            from pourpoint.refinement import merge as merge_subbasins
+            if refined_geometry is not None:
+                merged = refined_geometry
+            else:
+                from pourpoint.refinement import merge as merge_subbasins
 
-            merged = merge_subbasins(subbasins=parts)
+                merged = merge_subbasins(subbasins=parts)
         return DelineationResult(
             parts,
             merged,

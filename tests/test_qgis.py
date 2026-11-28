@@ -426,3 +426,59 @@ def test_qgis_write_closes_sqlite_deduplicates_groups_derives_ellipsoid_and_uses
         layer for layer in project.findall("projectlayers/maplayer") if layer.findtext("layername") == "nad83"
     )
     assert raster_layer.findtext("srs/spatialrefsys/ellipsoidacronym") == "EPSG:7019"
+
+
+def test_raster_export_avoids_float64_promotion_and_preserves_nodata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+    import rasterio
+    from affine import Affine
+    from rasterio.crs import CRS
+
+    from pourpoint.rasters import RasterGrid, RasterRequest, RasterWindow
+    from pourpoint.refinement import RasterSubset
+
+    crs = CRS.from_epsg(3857)
+    affine = Affine(10, 0, 100, 0, -10, 200)
+    grid = RasterGrid(crs, affine, 2, 2, "d", "a")
+    request = RasterRequest(0, 0, 2, 2, grid, object(), 0)
+    valid = np.ones((2, 2), dtype=bool)
+    mask = np.array([[True, False], [True, True]])
+    window = RasterWindow(
+        np.ones((2, 2), dtype="int8"),
+        np.array([[1.5, 2.5], [3.5, 4.5]], dtype="float32"),
+        valid,
+        valid,
+        affine,
+        crs,
+        "cells",
+        request,
+        np.array([[128, 64], [32, 16]], dtype="uint8"),
+        255,
+        float("nan"),
+    )
+    orig_where = np.where
+
+    def forbid_where(*args: object, **kwargs: object) -> object:
+        raise AssertionError("np.where should not be called during QGIS raster export")
+
+    monkeypatch.setattr(np, "where", forbid_where)
+    try:
+        folder = (
+            QGISBundle()
+            .add_raster("dir", RasterSubset(window, mask, "direction"))
+            .add_raster("acc", RasterSubset(window, mask, "accumulation"))
+            .write(tmp_path / "no-promote")
+        )
+    finally:
+        monkeypatch.setattr(np, "where", orig_where)
+
+    with rasterio.open(folder / "raster_0.tif") as d_tif:
+        assert d_tif.dtypes[0] == "uint8"
+        np.testing.assert_array_equal(d_tif.read(1), [[128, 255], [32, 16]])
+    with rasterio.open(folder / "raster_1.tif") as a_tif:
+        assert a_tif.dtypes[0] == "float32"
+        vals = a_tif.read(1)
+        assert np.isnan(vals[0, 1])
+        np.testing.assert_allclose(vals[mask], [1.5, 3.5, 4.5])

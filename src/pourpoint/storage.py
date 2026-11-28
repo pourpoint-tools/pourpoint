@@ -92,6 +92,24 @@ class _ArtifactFile(AbstractBufferedFile):
     def __eq__(self, other: object) -> bool:
         return self is other
 
+    def read(self, length: int = -1) -> bytes:
+        if (
+            not self.source.offline
+            and self.identity.local_stat is not None
+            and self.source._stat(self.path) != self.identity.local_stat
+        ):
+            raise ValueError(f"{self.path}: artifact changed")
+        return super().read(length)
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            if self is not self.source._files.get(self.path) and not any(
+                not stream.closed and stream.path == self.path for stream in self.source._independent_files
+            ):
+                self.source._head_cache.pop(self.path, None)
+
     def _fetch_range(self, start: int, end: int) -> bytes:
         end = min(end, self.identity.size)
         if start >= end:
@@ -163,6 +181,7 @@ class Source:
         self._independent_files: WeakSet[_ArtifactFile] = WeakSet()
         self._fingerprints: dict[str, Fingerprint] = {}
         self._bounded: set[str] = set()
+        self._head_cache: dict[str, bytes] = {}
         self._parquet: dict[str, pq.ParquetFile] = {}
         self._json: dict[str, tuple[Fingerprint | None, dict[str, object]]] = {}
         is_local = isinstance(root, Path) or is_win_path or not parsed.scheme or parsed.scheme == "file"
@@ -403,12 +422,16 @@ class Source:
                 actual = hashlib.sha256(data).hexdigest()
                 if actual != fingerprint.head_sha256 or actual != fingerprint.tail_sha256:
                     raise ValueError(f"{path}: bounded SHA-256 mismatch")
+                if not self.cache:
+                    self._head_cache[path] = data
             else:
                 count = 65536
                 for start, digest in ((0, fingerprint.head_sha256), (size - count, fingerprint.tail_sha256)):
                     data = self._range(path, stream.identity, start, start + count)
                     if hashlib.sha256(data).hexdigest() != digest:
                         raise ValueError(f"{path}: bounded SHA-256 mismatch")
+                    if start == 0 and not self.cache:
+                        self._head_cache[path] = data
             self._bounded.add(path)
         stream.seek(0)
         return cast(BinaryIO, stream)
@@ -421,6 +444,11 @@ class Source:
         """
         self.open_artifact(path, fingerprint, bounded=True)
         stream = _ArtifactFile(self, path, self._files[path].identity)
+        head = self._head_cache.get(path)
+        if head is not None and isinstance(stream.cache, ReadAheadCache):
+            stream.cache.cache = head
+            stream.cache.start = 0
+            stream.cache.end = len(head)
         self._independent_files.add(stream)
         return cast(BinaryIO, stream)
 
@@ -557,11 +585,14 @@ class Source:
         This counts serialized response buffers, not total process memory. Parquet
         pre-buffering and decoded Arrow batches have separate ownership/accounting.
         """
-        return sum(child.buffer_bytes for child in self._children.values()) + sum(
-            len(stream.cache.cache)
+        buffers = {
+            id(stream.cache.cache): stream.cache.cache
             for stream in (*self._files.values(), *self._independent_files)
             if not stream.closed and isinstance(stream.cache, ReadAheadCache)
-        )
+        }
+        for buf in self._head_cache.values():
+            buffers[id(buf)] = buf
+        return sum(child.buffer_bytes for child in self._children.values()) + sum(len(buf) for buf in buffers.values())
 
     def close(self) -> None:
         if self._closed:
@@ -575,6 +606,7 @@ class Source:
                 stream.close()
             self._parquet.clear()
             self._files.clear()
+            self._head_cache.clear()
             self._json.clear()
             for child in self._children.values():
                 child.close()

@@ -655,3 +655,35 @@ def test_prefetch_parquet_failure_cancels_pending_and_closes_cleanly(
             source.prefetch_parquet("file", mark, 0, ["id", "payload"])
         source.close()
         assert source._executor is None
+
+
+def test_raster_file_reuses_bounded_head_without_duplicate_read_when_uncached(
+    origin: tuple[str, OriginState], tmp_path: Path
+) -> None:
+    url, state = origin
+    data = bytes(i % 251 for i in range(100_000))
+    state["data"] = data
+    mark = fingerprint(data)
+    opts = {"client_options": {"allow_http": True}}
+
+    with Source(url, storage_options=opts, cache=False) as source:
+        source.open_artifact("file", mark, bounded=True)
+        reqs_after_bounded = len(state["requests"])
+        assert source.buffer_bytes >= 65536
+        with source.raster_file("file", mark) as stream:
+            head = stream.read(1024)
+            assert head == data[:1024]
+            assert len(state["requests"]) == reqs_after_bounded
+            stream.seek(65536)
+            tail = stream.read(1000)
+            assert tail == data[65536:66536]
+            assert len(state["requests"]) == reqs_after_bounded + 1
+    assert source.buffer_bytes == 0
+
+    local = tmp_path / "local.bin"
+    local.write_bytes(data)
+    with Source(tmp_path, cache=False) as local_src, local_src.raster_file("local.bin", mark) as stream:
+        assert stream.read(16) == data[:16]
+        local.write_bytes(b"Z" * 16 + data[16:])
+        with pytest.raises(ValueError, match="changed"):
+            stream.read(16)

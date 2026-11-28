@@ -12,9 +12,9 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from io import IOBase
 from math import ceil, floor, isfinite
-from threading import Lock, get_ident
+from threading import Lock, get_ident, local
 from types import TracebackType
-from typing import BinaryIO, Literal, Protocol, Self, cast
+from typing import Any, BinaryIO, Literal, Protocol, Self, cast
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -24,11 +24,64 @@ from affine import Affine
 from pyproj import Transformer
 from pyproj.exceptions import ProjError
 from rasterio.crs import CRS  # ty: ignore[unresolved-import]  # Cython module without stubs
+from rasterio.enums import MaskFlags
 from rasterio.io import DatasetReader
 from rasterio.windows import Window
 
 from pourpoint.metadata import BoundingBox, Fingerprint, artifact_path, bounds
 from pourpoint.storage import Source
+
+_ORIG_FROM_CRS = Transformer.from_crs
+_TRANSFORMERS = local()
+_INVALID_DIRECTION = np.int8(-128)
+_DIRECTION_ENCODINGS: dict[str, tuple[int, ...]] = {
+    "esri": (1, 2, 4, 8, 16, 32, 64, 128),
+    "merit": (1, 2, 4, 8, 16, 32, 64, 128),
+    "taudem": (1, 8, 7, 6, 5, 4, 3, 2),
+    "grass": (8, 7, 6, 5, 4, 3, 2, 1),
+}
+
+
+def _build_direction_luts() -> dict[tuple[str, str], npt.NDArray[np.int8]]:
+    luts: dict[tuple[str, str], npt.NDArray[np.int8]] = {}
+    for encoding, codes in _DIRECTION_ENCODINGS.items():
+        for kind in ("u", "i"):
+            lut = np.full(256, _INVALID_DIRECTION, dtype=np.int8)
+            for normalized, code in enumerate(codes, 1):
+                if kind == "u" or code < 128:
+                    lut[code] = normalized
+                if encoding == "grass" and kind == "i":
+                    lut[(-code) & 0xFF] = -normalized
+            if encoding == "merit":
+                lut[0] = 0
+                lut[255 if kind == "u" else ((-1) & 0xFF)] = 0
+            elif encoding == "grass":
+                lut[0] = 0
+            lut.flags.writeable = False
+            luts[(encoding, kind)] = lut
+    return luts
+
+
+_DIRECTION_LUTS = _build_direction_luts()
+
+
+def _crs_key(crs: str | CRS) -> str:
+    return crs.to_wkt() if isinstance(crs, CRS) else str(crs)
+
+
+def _transformer(source: str | CRS, target: str | CRS, from_crs: Any = _ORIG_FROM_CRS) -> Transformer:
+    if from_crs is not _ORIG_FROM_CRS:
+        return cast(Transformer, from_crs(source, target, always_xy=True))
+    cache: dict[tuple[str, str], Transformer] | None = getattr(_TRANSFORMERS, "cache", None)
+    if cache is None:
+        cache = {}
+        _TRANSFORMERS.cache = cache
+    key = (_crs_key(source), _crs_key(target))
+    cached = cache.get(key)
+    if cached is None:
+        cached = _ORIG_FROM_CRS(source, target, always_xy=True)
+        cache[key] = cached
+    return cached
 
 
 def normalize_direction(
@@ -36,26 +89,13 @@ def normalize_direction(
     valid: npt.NDArray[np.bool_],
     encoding: str,
 ) -> npt.NDArray[np.int8]:
-    codes = {
-        "esri": (1, 2, 4, 8, 16, 32, 64, 128),
-        "merit": (1, 2, 4, 8, 16, 32, 64, 128),
-        "taudem": (1, 8, 7, 6, 5, 4, 3, 2),
-        "grass": (8, 7, 6, 5, 4, 3, 2, 1),
-    }[encoding]
-    selected = values[valid].astype(np.int16)
-    if encoding == "grass":
-        allowed: tuple[int, ...] = (*codes, 0, *(-v for v in codes))
-    elif encoding == "merit":
-        allowed = (*codes, 0, -1 if values.dtype.kind == "i" else 255)
-    else:
-        allowed = codes
-    if np.any(~np.isin(selected, allowed)):
+    if encoding not in _DIRECTION_ENCODINGS:
+        raise KeyError(encoding)
+    lut = _DIRECTION_LUTS[(encoding, values.dtype.kind)]
+    result = lut[values.view(np.uint8)]
+    if np.any(valid & (result == _INVALID_DIRECTION)):
         raise ValueError("invalid consumed direction code")
-    result = np.zeros(values.shape, dtype=np.int8)
-    for normalized, code in enumerate(codes, 1):
-        result[valid & (values == code)] = normalized
-        if encoding == "grass" and values.dtype.kind == "i":
-            result[valid & (values == -code)] = -normalized
+    result[~valid] = 0
     return result
 
 
@@ -63,6 +103,13 @@ def _valid_mask(values: npt.NDArray[np.generic], mask: npt.NDArray[np.uint8], no
     # GDAL prefers an internal TIFF mask over the nodata tag. HFX still requires
     # header nodata to be absent, even if an internal mask marks that cell valid.
     return (mask != 0) & (~np.isnan(values) if np.isnan(nodata) else values != nodata)
+
+
+def _read_valid_mask(band: DatasetReader, values: npt.NDArray[np.generic], window: Window) -> npt.NDArray[np.bool_]:
+    nodata = float(band.nodata)
+    if set(band.mask_flag_enums[0]).issubset({MaskFlags.nodata, MaskFlags.all_valid}):
+        return ~np.isnan(values) if np.isnan(nodata) else values != nodata
+    return _valid_mask(values, band.read_masks(1, window=window), nodata)
 
 
 class MissingRastersError(LookupError):
@@ -449,7 +496,7 @@ class RasterReader:
             for index, declaration in enumerate(self._declarations):
                 native = region
                 if source_crs != declaration.crs:
-                    transformer = Transformer.from_crs(source_crs, declaration.crs, always_xy=True)
+                    transformer = _transformer(source_crs, declaration.crs, from_crs=Transformer.from_crs)
                     try:
                         native = bounds(transformer.transform_bounds(*region, densify_pts=101, errcheck=True))
                     except ProjError:
@@ -515,18 +562,17 @@ class RasterReader:
             try:
                 direction = pair.direction.read(1, window=window)
                 accumulation = pair.accumulation.read(1, window=window)
-                direction_valid = _valid_mask(
-                    direction, pair.direction.read_masks(1, window=window), pair.direction.nodata
-                )
-                accumulation_valid = _valid_mask(
-                    accumulation, pair.accumulation.read_masks(1, window=window), pair.accumulation.nodata
-                )
+                direction_valid = _read_valid_mask(pair.direction, direction, window)
+                accumulation_valid = _read_valid_mask(pair.accumulation, accumulation, window)
             finally:
                 if self._io_errors:
                     raise self._io_errors[0]
                 for reference in (declaration.direction, declaration.accumulation):
                     self._check(reference)
-            if np.any(~np.isfinite(accumulation[accumulation_valid])) or np.any(accumulation[accumulation_valid] < 0):
+            valid_accumulation = accumulation[accumulation_valid]
+            if (accumulation.dtype.kind == "f" and np.any(~np.isfinite(valid_accumulation))) or np.any(
+                valid_accumulation < 0
+            ):
                 raise ValueError("invalid consumed accumulation value")
             return RasterWindow(
                 normalize_direction(direction, direction_valid, declaration.encoding),

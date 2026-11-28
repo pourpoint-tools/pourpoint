@@ -622,3 +622,135 @@ def test_merit_window_raw_values_and_header_nodata_precedence(spatial_hfx: Path,
         np.testing.assert_array_equal(signed_window.raw_direction, [[1, 64, 0, -1, -9]])
         with pytest.raises(ValueError, match="direction"):
             data.rasters.read(data.rasters.prepare((5, 0, 6, 1)))
+
+
+def test_normalize_direction_lut_matches_reference_across_all_bytes() -> None:
+    encodings: dict[str, tuple[int, ...]] = {
+        "esri": (1, 2, 4, 8, 16, 32, 64, 128),
+        "merit": (1, 2, 4, 8, 16, 32, 64, 128),
+        "taudem": (1, 8, 7, 6, 5, 4, 3, 2),
+        "grass": (8, 7, 6, 5, 4, 3, 2, 1),
+    }
+
+    def reference(values: np.ndarray, valid: np.ndarray, encoding: str) -> np.ndarray:
+        codes = encodings[encoding]
+        selected = values[valid].astype(np.int16)
+        if encoding == "grass":
+            allowed: tuple[int, ...] = (*codes, 0, *(-v for v in codes))
+        elif encoding == "merit":
+            allowed = (*codes, 0, -1 if values.dtype.kind == "i" else 255)
+        else:
+            allowed = codes
+        if np.any(~np.isin(selected, allowed)):
+            raise ValueError("invalid consumed direction code")
+        out = np.zeros(values.shape, dtype=np.int8)
+        for normalized, code in enumerate(codes, 1):
+            out[valid & (values == code)] = normalized
+            if encoding == "grass" and values.dtype.kind == "i":
+                out[valid & (values == -code)] = -normalized
+        return out
+
+    raw_bytes = np.arange(256, dtype=np.uint8).reshape(16, 16)
+    for encoding in encodings:
+        for dtype in (np.uint8, np.int8):
+            arr = raw_bytes.view(dtype)
+            invalid_mask = np.zeros(arr.shape, dtype=bool)
+            np.testing.assert_array_equal(
+                normalize_direction(arr, invalid_mask, encoding), np.zeros(arr.shape, dtype=np.int8)
+            )
+            for idx in range(256):
+                cell = arr.flat[idx : idx + 1].reshape(1, 1)
+                ones = np.ones((1, 1), dtype=bool)
+                try:
+                    expected = reference(cell, ones, encoding)
+                except ValueError:
+                    with pytest.raises(ValueError, match="direction"):
+                        normalize_direction(cell, ones, encoding)
+                else:
+                    actual = normalize_direction(cell, ones, encoding)
+                    assert actual.dtype == np.int8
+                    np.testing.assert_array_equal(actual, expected)
+
+
+def test_read_masks_skipped_only_when_no_internal_mask(spatial_hfx: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import rasterio
+    from conftest import refresh_fingerprint
+    from rasterio.transform import from_origin
+
+    add_pair(
+        spatial_hfx,
+        direction=np.array([[1, 255], [4, 8]], dtype="uint8"),
+        accumulation=np.array([[10, 20], [-999, 30]], dtype="int32"),
+        transform=from_origin(0, 2, 1, 1),
+        direction_nodata=255,
+    )
+    read_mask_calls = 0
+    orig_read_masks = rasterio.io.DatasetReader.read_masks
+
+    def spy_read_masks(self: rasterio.io.DatasetReader, *args: object, **kwargs: object) -> np.ndarray:
+        nonlocal read_mask_calls
+        read_mask_calls += 1
+        return orig_read_masks(self, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio.io.DatasetReader, "read_masks", spy_read_masks)
+    with HydroFabric(spatial_hfx, cache=False) as data:
+        w = data.rasters.read(data.rasters.prepare((0, 0, 2, 2)))
+        assert read_mask_calls == 0
+        np.testing.assert_array_equal(w.direction_valid, [[True, False], [True, True]])
+        np.testing.assert_array_equal(w.accumulation_valid, [[True, True], [False, True]])
+
+    # Now add a per-dataset internal mask to dir.tif and verify read_masks() is invoked.
+    with rasterio.open(spatial_hfx / "dir.tif", "r+") as ds:
+        ds.write_mask(np.array([[255, 255], [0, 255]], dtype="uint8"))
+    refresh_fingerprint(spatial_hfx, "dir.tif")
+    with HydroFabric(spatial_hfx, cache=False) as data:
+        w = data.rasters.read(data.rasters.prepare((0, 0, 2, 2)))
+        assert read_mask_calls == 1
+        np.testing.assert_array_equal(w.direction_valid, [[True, False], [False, True]])
+
+
+def test_transformer_cache_is_thread_local() -> None:
+    import threading
+
+    from pourpoint.rasters import _transformer
+
+    results: list[object] = []
+    t1 = _transformer("EPSG:4326", "EPSG:3857")
+    t2 = _transformer("EPSG:4326", "EPSG:3857")
+    assert t1 is t2
+
+    def worker() -> None:
+        w1 = _transformer("EPSG:4326", "EPSG:3857")
+        w2 = _transformer("EPSG:4326", "EPSG:3857")
+        assert w1 is w2
+        results.append(w1)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join()
+    assert results[0] is not t1
+
+
+def test_external_raster_works_with_frozen_spatial_manifest(
+    spatial_hfx: Path, external_origin: tuple[str, OriginState]
+) -> None:
+    add_pair(spatial_hfx)
+    url, state = external_origin
+    state["files"] = {name: (spatial_hfx / name).read_bytes() for name in ("dir.tif", "acc.tif")}
+    raw = json.loads((spatial_hfx / "manifest.json").read_text())
+    external = {}
+    for role, name in raw["auxiliary"][-1]["artifacts"].items():
+        external[role] = {
+            "url": f"{url.replace('http://', 'https://')}/{name}",
+            **raw["artifacts"].pop(name),
+            "retention": "retained",
+        }
+        raw["auxiliary"][-1]["artifacts"][role] = {"external": role}
+    raw["external_artifacts"] = external
+    manifest = SpatialManifest.parse(raw)
+    with (
+        Source(url, storage_options={"client_options": {"allow_http": True}}, cache=False) as source,
+        RasterReader(source, manifest) as reader,
+    ):
+        window = reader.read(reader.prepare((0, 0, 4, 2)))
+        np.testing.assert_array_equal(window.direction, [[1, 2, 0, 0], [3, 4, 5, 6]])

@@ -315,7 +315,7 @@ class QGISBundle:
         self._results.append((group, index, result))
         start = len(self._vectors)
         if isinstance(result, FootprintRefinement):
-            self.add_vector("watershed", result.footprint, crs="EPSG:4326")
+            self.add_vector("watershed", result.geometry, crs="EPSG:4326")
         else:
             if result.subbasins:
                 self.add_vector("subbasins", result.subbasins)
@@ -494,7 +494,9 @@ class QGISBundle:
                 valid = window.accumulation_valid & subset.mask
             if values is None or nodata is None:
                 raise ValueError("raster export requires retained source values and nodata")
-            output = np.where(valid, values, nodata).astype(values.dtype)
+            fill = np.asarray(nodata, dtype=values.dtype).item()
+            output = values.copy()
+            output[~valid] = fill
             with rasterio.open(
                 folder / filename,
                 "w",
