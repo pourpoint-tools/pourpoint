@@ -265,3 +265,86 @@ def test_select_rivers_validates_inputs_and_skips_orientation_for_wholly_downstr
 
     with pytest.raises(ValueError, match="radius"):
         snap(target=Point(0, 0), onto=LineString([(0, -1), (0, 1)]), radius=True)  # type: ignore[arg-type]
+
+
+def test_snap_antimeridian_polar_tiebreak_and_delineate_eager_validation(tmp_path: Path) -> None:
+    from shapely.geometry import MultiLineString
+
+    from pourpoint import delineate
+    from pourpoint.rivers import snap
+
+    # Antimeridian wrap: point at +179.95 is ~11.1 km from (-179.95, 0) and ~22.2 km from (+179.75, 0).
+    streams_anti = MultiLineString([[(-179.95, -0.1), (-179.95, 0.1)], [(179.75, -0.1), (179.75, 0.1)]])
+    snapped_anti = snap(target=Point(179.95, 0.0), onto=streams_anti, radius=15_000)
+    assert snapped_anti.x == pytest.approx(-179.95)
+    assert snapped_anti.y == pytest.approx(0.0, abs=1e-8)
+
+    # Near-polar latitude: longitude differences shrink dramatically; never falsely prune.
+    streams_pole = MultiLineString([[(120.0, 89.8), (120.0, 89.9)], [(-60.0, 89.85), (-60.0, 89.95)]])
+    snapped_pole = snap(target=Point(0.0, 89.85), onto=streams_pole, radius=40_000)
+    assert snapped_pole.x == pytest.approx(-60.0)
+    assert 89.85 <= snapped_pole.y <= 89.95
+
+    # Input-order tie-breaking across equidistant branches.
+    tie_lines = MultiLineString([[(0.01, -1.0), (0.01, 1.0)], [(-0.01, -1.0), (-0.01, 1.0)]])
+    assert snap(target=Point(0.0, 0.0), onto=tie_lines, radius=5_000).x == pytest.approx(0.01)
+
+    # Eager validation of snap_onto in delineate() even on empty batch.
+    with (
+        HydroFabric(make_spatial_bundle(tmp_path / "fabric"), cache=False) as fabric,
+        pytest.raises(ValueError, match="antimeridian"),
+    ):
+        delineate(
+            fabric=fabric,
+            target=[],
+            snap_onto=LineString([(179.0, 0.0), (-179.0, 0.0)]),
+            radius=100,
+        )
+
+
+def test_select_rivers_eliminates_redundant_river_reads_and_uses_bounded_union(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pyarrow as pa
+
+    from pourpoint import _union
+    from pourpoint.features import Subbasin
+    from pourpoint.rivers import select_rivers
+
+    path = river_publication(tmp_path / "rivers", orientation=0)
+    with HydroFabric(path, cache=False) as fabric:
+        record_calls: list[tuple[str, list[int]]] = []
+        orig_records = fabric.records
+
+        def spy_records(domain: str, ids: object, **kwargs: object) -> pa.Table:
+            record_calls.append((domain, list(ids)))  # type: ignore[arg-type]
+            return orig_records(domain, ids, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(fabric, "records", spy_records)
+
+        # include_downstream=False should reuse candidate table rows without calling records("rivers", ...).
+        res_simple = select_rivers(fabric=fabric, target=box(0.5, -0.5, 1.5, 0.5), include_downstream=False)
+        assert [r.id for r in res_simple.rivers] == [10]
+        assert not [c for c in record_calls if c[0] == "rivers"]
+
+        record_calls.clear()
+        # include_downstream=True should only fetch extra downstream rivers [20, 30, 40], never re-reading [10].
+        res_down = select_rivers(fabric=fabric, target=box(0.5, -0.5, 1.5, 0.5), include_downstream=True)
+        assert [r.id for r in res_down.rivers] == [10, 20, 30, 40]
+        river_fetches = [c[1] for c in record_calls if c[0] == "rivers"]
+        assert river_fetches == [[20, 30, 40]]
+
+        # Sequence target must route through _union.union_subbasins instead of raw shapely.union_all.
+        union_calls = 0
+        orig_union_subbasins = _union.union_subbasins
+
+        def spy_union(parts: object) -> object:
+            nonlocal union_calls
+            union_calls += 1
+            return orig_union_subbasins(parts)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(_union, "union_subbasins", spy_union)
+        tbl = pa.table({"id": [1, 2], "geometry": [box(0.5, -0.5, 1, 0.5).wkb, box(1, -0.5, 1.5, 0.5).wkb]})
+        seq_res = select_rivers(fabric=fabric, target=[Subbasin(tbl, 0), Subbasin(tbl, 1)])
+        assert union_calls == 1
+        assert seq_res.geometry.equals(LineString([(0.5, 0), (1.5, 0)]))

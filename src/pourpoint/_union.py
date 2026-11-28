@@ -9,6 +9,7 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 import shapely
+from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 
 from pourpoint.features import Subbasin
@@ -29,9 +30,16 @@ def _union_group(parts: Sequence[BasinPart]) -> BaseGeometry:
 
 
 def union_subbasins(parts: Sequence[BasinPart]) -> BaseGeometry:
+    if not parts:
+        return Polygon()
+    if len(parts) == 1:
+        geometry = parts[0].geometry
+        if isinstance(geometry, (Polygon, MultiPolygon)) and geometry.is_valid:
+            return geometry
+        return shapely.union_all([geometry])
+    if len(parts) <= _GROUP_SIZE:
+        return _union_group(parts)
     with _WORKSPACE:
-        if len(parts) <= _GROUP_SIZE:
-            return _union_group(parts)
         addresses = [(part if isinstance(part, Subbasin) else part.source)._source_address for part in parts]
         # No source lookup or invented spatial order for manually supplied parts.
         ordered = (

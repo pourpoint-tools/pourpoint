@@ -293,6 +293,9 @@ class HydroFabric:
         """
         table = self.records("rivers", ids)
         relations = self.relationships("rivers", ids)
+        return self._build_river_network(table, relations)
+
+    def _build_river_network(self, table: pa.Table, relations: pa.Table) -> RiverNetwork:
         node_ids: set[int] = set()
         for name in ("upstream_node_ids", "downstream_node_ids"):
             if name in relations.column_names:

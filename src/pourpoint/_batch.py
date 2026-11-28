@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from uuid import uuid4
 
 from shapely.geometry.base import BaseGeometry
@@ -47,16 +48,24 @@ def execute[T](
     if count <= 1:
         slots = [evaluate(fabric, target) for target in targets]
     else:
+        index_iter = iter(range(len(targets)))
+        index_lock = Lock()
 
-        def chunk(indices: list[int]) -> tuple[list[tuple[int, T | None, BatchIssue | None]], TransferStats]:
+        def worker_run() -> tuple[list[tuple[int, T | None, BatchIssue | None]], TransferStats]:
             with fabric._fork() as reader:
-                values = [(index, *evaluate(reader, targets[index])) for index in indices]
-                return values, reader.stats
+                local: list[tuple[int, T | None, BatchIssue | None]] = []
+                while True:
+                    with index_lock:
+                        index = next(index_iter, None)
+                    if index is None:
+                        break
+                    local.append((index, *evaluate(reader, targets[index])))
+                return local, reader.stats
 
         slots: list[tuple[T | None, BatchIssue | None]] = [(None, None)] * len(targets)
         with ThreadPoolExecutor(max_workers=count) as pool:
-            # One context per worker chunk, reused for its targets, never shared.
-            futures = [pool.submit(chunk, list(range(worker, len(targets), count))) for worker in range(count)]
+            # Each worker owns one reader context and dynamically pulls targets.
+            futures = [pool.submit(worker_run) for _ in range(count)]
             for future in futures:
                 values, stats = future.result()
                 fabric.stats.requests += stats.requests
