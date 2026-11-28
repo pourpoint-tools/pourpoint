@@ -83,8 +83,22 @@ def test_feature_single_row_equality_hashing_concise_repr_and_uncached_geometry(
     assert River(pa.table({"id": [1], "geometry": [to_wkb(LineString([(0, 0), (1, 1)]))]}), 0) != s1
     assert SourceNode(pa.table({"id": [1], "geometry": [to_wkb(LineString([(0, 0), (1, 1)]).centroid)]}), 0) != s1
 
-    # Dictionary-backed rows with identical values match despite unused dictionary entries
+    # Dictionary-backed rows (flat and nested list<dictionary>) match despite unused entries or prior slicing
     assert Subbasin(t_dict1, 1) == Subbasin(t_dict2, 1)
+    list_dict1 = pa.ListArray.from_arrays(
+        [0, 1, 2], pa.DictionaryArray.from_arrays(pa.array([0, 1], type=pa.int8()), pa.array(["a", "b"]))
+    )
+    list_dict2 = pa.ListArray.from_arrays(
+        [0, 1, 2], pa.DictionaryArray.from_arrays(pa.array([0, 1], type=pa.int8()), pa.array(["a", "c"]))
+    )
+    list_dict_b = pa.ListArray.from_arrays(
+        [0, 1], pa.DictionaryArray.from_arrays(pa.array([0], type=pa.int8()), pa.array(["b"]))
+    )
+    t_nested1 = pa.table({"id": [1, 2], "geometry": [wkb_a, wkb_b], "ld": list_dict1})
+    t_nested2 = pa.table({"id": [1, 9], "geometry": [wkb_a, wkb_b], "ld": list_dict2})
+    t_nested_b = pa.table({"id": [2], "geometry": [wkb_b], "ld": list_dict_b})
+    assert Subbasin(t_nested1, 0) == Subbasin(t_nested2, 0)
+    assert Subbasin(t_nested1.slice(1, 1), 0) == Subbasin(t_nested_b, 0)
 
     # Concise repr never dumps backing Arrow tables
     assert repr(s1) == "Subbasin(id=1)"

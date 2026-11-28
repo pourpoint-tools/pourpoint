@@ -10,11 +10,13 @@ import pyarrow as pa
 import shapely
 from shapely.geometry.base import BaseGeometry
 
-from pourpoint._selection import compact_dictionaries
+from pourpoint._selection import _has_dictionary, compact_dictionaries, take_rows
 
 
 def _single_row_table(table: pa.Table, row: int) -> pa.Table:
-    return compact_dictionaries(table.slice(row, 1))
+    if any(_has_dictionary(field.type) for field in table.schema):
+        return compact_dictionaries(take_rows(table, [row]))
+    return table.slice(row, 1)
 
 
 class Attributes(Mapping[str, object]):
